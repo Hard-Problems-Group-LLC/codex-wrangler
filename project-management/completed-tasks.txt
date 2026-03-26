@@ -1,0 +1,20 @@
+Completed Tasks
+
+Record completed tasks with newest entries at the top. Use asterisk-plus-blank
+line formatting. Include concise outcomes, owners, blocker resolution notes,
+and ISO 8601 timestamps.
+
+*
+
+  Completed: 2026-03-25T21:26:29-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: restructured `codex-wrangler` into focused modules, unified package
+  versioning, expanded pessimistic tests, corrected local install and generated
+  operator guidance, and hardened local validation around Black sandbox hangs
+  with repo-local wrapper scripts.
+  Validation: `.venv/bin/python scripts/run_local_quality_gate.py` passed with
+  33 tests green plus Ruff, compileall, entropy harness, and entropy tripwire.
+  Notes: the Black wrapper now probes optional flag support with bounded
+  timeouts, falls back cleanly when probes fail, and formats one file at a
+  time so sandbox multi-file hangs do not block the repository quality gate.

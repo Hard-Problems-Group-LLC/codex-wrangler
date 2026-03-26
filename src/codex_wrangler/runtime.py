@@ -1,0 +1,81 @@
+"""Small runtime helpers for process execution and operator output."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import os
+import shutil
+import subprocess
+import sys
+from typing import Sequence, Tuple
+
+from .models import CodexWranglerError
+
+
+def utc_now_iso() -> str:
+    """Return a UTC timestamp suitable for JSON metadata and reports."""
+
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def eprint(message: str) -> None:
+    """Send operator-facing status output to stderr."""
+
+    print(message, file=sys.stderr)
+
+
+def looks_like_alpha(version: str) -> bool:
+    """Return True when a version string looks like a prerelease alpha."""
+
+    return "-alpha." in version
+
+
+def detect_npm_binaries() -> Tuple[str, str]:
+    """Return platform-correct executable names for npm and npx."""
+
+    if os.name == "nt":
+        return "npm.cmd", "npx.cmd"
+    return "npm", "npx"
+
+
+def ensure_command_exists(name: str) -> None:
+    """Raise a clear error when a required external command is missing."""
+
+    if shutil.which(name) is None:
+        raise CodexWranglerError(
+            "Required command {!r} was not found in PATH. Install Node.js/npm "
+            "first and rerun this script.".format(name)
+        )
+
+
+def run_command(
+    command: Sequence[str],
+    cwd: str,
+    capture_output: bool = False,
+) -> subprocess.CompletedProcess:
+    """Run a subprocess with explicit error reporting."""
+
+    eprint("[codex-wrangler] Running: {}".format(" ".join(command)))
+    completed = subprocess.run(
+        list(command),
+        cwd=cwd,
+        check=False,
+        capture_output=capture_output,
+        text=True,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip() if completed.stderr else ""
+        detail = "\n{}".format(stderr) if stderr else ""
+        raise CodexWranglerError(
+            "Command failed with exit code {}: {}{}".format(
+                completed.returncode,
+                " ".join(command),
+                detail,
+            )
+        )
+    return completed

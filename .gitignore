@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# BEGIN managed by codex-wrangler
+.codex-local/
+.codex-home/
+README-LOCAL-Start-Codex.md
+# END managed by codex-wrangler

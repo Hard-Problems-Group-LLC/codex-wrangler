@@ -1,0 +1,5 @@
+# Managed starter tool versions from TheKnowledge.
+black==25.1.0
+ruff==0.15.7
+pytest==8.4.2
+pytest-timeout==2.4.0
