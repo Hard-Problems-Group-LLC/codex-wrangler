@@ -1,0 +1,4 @@
+Preserve managed venv Python symlink paths during project installs so
+standard installs keep using the venv instead of the externally managed
+system interpreter.
+Add regression coverage for symlinked venv interpreters in project_install.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -73,7 +74,13 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 def repo_venv_path(venv_python: Path) -> Path:
     """Return the virtual-environment root from its Python executable path."""
 
-    return venv_python.resolve().parents[1]
+    return absolute_path_preserving_symlinks(venv_python).parents[1]
+
+
+def absolute_path_preserving_symlinks(path: Path) -> Path:
+    """Return one absolute path without collapsing any symlinked segments."""
+
+    return Path(os.path.abspath(str(path.expanduser())))
 
 
 def resolve_target_venv(args: argparse.Namespace, venv_python: Path) -> Path:
@@ -147,7 +154,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     args = parse_args(argv or sys.argv[1:])
     repo_root = args.repo_root.resolve()
-    venv_python = Path(args.python).expanduser().resolve()
+    venv_python = absolute_path_preserving_symlinks(Path(args.python))
     venv_path = resolve_target_venv(args, venv_python)
     bin_dir = args.bin_dir.expanduser().resolve()
     try:

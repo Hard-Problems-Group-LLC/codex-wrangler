@@ -17,6 +17,18 @@ Completed Requests
 ------------------
 
 *
+  2026-04-01T10:20:15-07:00
+  Requestor: operator
+  Action: Investigate and correct the `install.sh` standard-install failure
+  where the project install hook fell back to `/usr/bin/python3.13` and hit
+  Debian's externally managed environment guard.
+  Status: completed by Codex on 2026-04-01T10:20:15-07:00. The project
+  install hook now preserves the managed venv interpreter path instead of
+  resolving its symlink target, regression coverage models the symlinked
+  venv layout explicitly, and the full local quality gate passed with `71`
+  tests green.
+
+*
   2026-04-01T01:42:16-07:00
   Requestor: operator
   Action: Correct the install-policy docs and implementation so the default

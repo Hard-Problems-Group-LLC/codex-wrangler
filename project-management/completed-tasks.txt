@@ -5,6 +5,24 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-04-01T10:20:15-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: corrected the repo-specific standard-install hook so a managed
+  virtual environment that exposes `bin/python` as a symlink no longer gets
+  collapsed to the base interpreter path during project installation. The
+  installer now preserves the venv Python path, keeps venv-root detection on
+  the managed environment rather than `/usr/bin/python3.13`, and adds a
+  focused regression test for the symlinked interpreter case that triggered
+  the Debian PEP 668 failure.
+  Validation: `.venv/bin/python -m pytest -q tests/test_project_install.py`
+  passed with `9` tests green; `.venv/bin/python scripts/run_local_quality_gate.py`
+  passed with `71` tests green.
+  Notes: a throwaway venv smoke bootstrap could not be completed inside the
+  sandbox because the temporary venv could not download `setuptools>=69`
+  without network access.
+
+*
   Completed: 2026-04-01T01:42:16-07:00.
   Owner: Codex.
   Requestor: operator.
