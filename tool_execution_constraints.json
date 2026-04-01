@@ -16,13 +16,13 @@
               },
               "tools": {
                 "black": {
-                  "parallel_safety": {
-                    "status": "unsafe",
-                    "applies_when": {
-                      "invocation_kind": "explicit_paths",
-                      "path_count_gte": 2
-                    },
-                    "preferred_workaround": {
+                                                "parallel_safety": {
+                                                    "status": "unsafe",
+                                                    "applies_when": {
+                                                        "invocation_kind": "any",
+                                                        "path_count_gte": 2
+                                                    },
+                                                    "preferred_workaround": {
                       "mode": "serial_explicit_paths"
                     },
                     "confidence": "high",

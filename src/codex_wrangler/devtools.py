@@ -8,8 +8,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
-from typing import Iterable, List, Sequence
-
+from typing import Iterable, List, Optional, Sequence
 
 DEFAULT_BLACK_TIMEOUT_SECONDS = 60
 DEFAULT_CAPTURE_TIMEOUT_SECONDS = 10
@@ -44,7 +43,7 @@ def _run_capture(
     command: Sequence[str],
     cwd: Path,
     *,
-    timeout_seconds: int | None = None,
+    timeout_seconds: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
         list(command),
@@ -316,7 +315,7 @@ def run_repo_quality_gate(
 
 def main_run_black(
     repo_root: Path,
-    argv: Sequence[str] | None = None,
+    argv: Optional[Sequence[str]] = None,
 ) -> int:
     """CLI entry point for the Black wrapper."""
 
@@ -362,7 +361,7 @@ def main_run_black(
 
 def main_run_quality_gate(
     repo_root: Path,
-    argv: Sequence[str] | None = None,
+    argv: Optional[Sequence[str]] = None,
 ) -> int:
     """CLI entry point for the local repository quality gate."""
 

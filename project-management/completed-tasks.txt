@@ -5,6 +5,81 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-04-01T01:42:16-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: corrected the managed install-policy contract so `./install.sh`
+  now defaults to a user-local standard install, `./install.sh --mode dev`
+  is the explicit repo-local development path, `sudo ./install.sh --system`
+  is the explicit system path, `sudo` without `--system` is rejected, and
+  direct `root` use without `--system` now requires confirmation. Updated the
+  repo's managed install entrypoints, project install hook, and developer
+  docs to match.
+  Validation: `.venv/bin/python scripts/run_local_quality_gate.py` passed
+  with `69` tests green; focused installer and entrypoint regression suites
+  passed after the policy correction.
+  Notes: stable installs and project-bound development installs now follow
+  the same scope rules documented in TheKnowledge.
+
+*
+
+  Completed: 2026-03-31T20:48:26-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: documented the interpreter and package-environment precedence
+  follow-up as an approved proposal, added a repo-specific
+  `scripts/install_project.py` hook plus `src/codex_wrangler/project_install.py`,
+  made development installs publish a project-bound
+  `~/.local/bin/codex-wrangler` launcher that points at this checkout's
+  `.venv`, made standard and venv-only installs remove that override when
+  owned, and taught the stable user installer to reuse the managed pyenv
+  runtime when it already exists.
+  Validation: `.venv/bin/python -m pytest` passed with `63` tests green;
+  `.venv/bin/python scripts/run_local_quality_gate.py` passed; targeted Black
+  coverage ran on the new install-hook files; TheKnowledge doc tests and
+  entropy checks were rerun after the related standard/proposal updates.
+  Notes: the Python development workflow now comes closer to the documented
+  standard by keeping the project-specific override active even when the
+  command is launched outside the repository directory.
+
+*
+
+  Completed: 2026-03-31T20:08:27-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: adopted the converged managed bootstrap design from TheKnowledge by
+  refreshing the repo to the managed `install.sh` plus
+  `scripts/install-stage-2.py` contract, aligning docs and tests with the
+  shared dev/standard/venv-only install modes, removing the redundant local
+  package bootstrap shim, keeping the CLI-specific
+  `scripts/install_user_tool.py` path, and synchronizing the `dev` extra with
+  the managed pinned tool requirements.
+  Validation: `.venv/bin/python -m pytest` passed with `53` tests green;
+  `.venv/bin/python scripts/run_local_quality_gate.py` passed after the Black
+  26 upgrade; explicit Black coverage also ran on the new untracked Python
+  files introduced by the managed refresh.
+  Notes: the final parent-repo state now treats `bootstrap.sh` and
+  `bootstrap-stage2.py` as compatibility wrappers around the managed install
+  flow instead of primary repo-specific bootstrap logic.
+
+*
+
+  Completed: 2026-03-31T15:12:34-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: replaced the fragmented developer bootstrap guidance with a
+  top-level `install.sh` plus `scripts/install-stage-2.py`, added Python
+  3.9-safe bootstrap helpers and tests, made developer installs rely on
+  repo-local `.venv` with mandatory `direnv`, and corrected supporting docs to
+  match the new Rocky-and-Ubuntu workflow.
+  Validation: `.venv/bin/python -m pytest` passed with 50 tests green;
+  `.venv/bin/python scripts/run_local_quality_gate.py ruff` passed; the full
+  repo quality gate was rerun after the bootstrap changes.
+  Notes: the developer flow now favors user-global `pyenv`, repo-local `.venv`,
+  and generated `.envrc` activation instead of editable installs into a
+  separate tool venv.
+
+*
 
   Completed: 2026-03-25T21:26:29-07:00.
   Owner: Codex.

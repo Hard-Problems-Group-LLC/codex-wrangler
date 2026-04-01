@@ -4,7 +4,6 @@ from pathlib import Path
 
 from ._version import __version__
 
-
 SCRIPT_NAME = "codex-wrangler"
 SCRIPT_VERSION = __version__
 SCHEMA_VERSION = 1

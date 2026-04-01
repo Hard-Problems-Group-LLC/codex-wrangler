@@ -15,3 +15,38 @@ Active Requests
 
 Completed Requests
 ------------------
+
+*
+  2026-04-01T01:42:16-07:00
+  Requestor: operator
+  Action: Correct the install-policy docs and implementation so the default
+  `install.sh` path is user-local standard install, development mode is
+  explicit, and system installs require `--system`.
+  Status: completed by Codex on 2026-04-01T01:42:16-07:00. The repository now
+  follows that corrected install-policy contract in the managed entrypoints,
+  repo-specific install hook, and user-facing docs, and the full local
+  quality gate passed with `69` tests green.
+
+*
+
+  2026-03-31T20:48:26-07:00
+  Requestor: operator
+  Action: Document the interpreter-environment-precedence follow-up proposal
+  and start implementing the next slice needed to meet that standard.
+  Status: completed by Codex on 2026-03-31T20:48:26-07:00. The repository now
+  has the approved follow-up proposal, a repo-bound developer launcher hook,
+  pyenv-runtime reuse in the stable user installer, updated docs, and a full
+  passing local quality gate with `63` tests green.
+
+*
+
+  2026-03-31T20:08:27-07:00
+  Requestor: operator
+  Action: Adopt the converged managed bootstrap design in both this repository
+  and TheKnowledge `trunk`, write the plan up as an approved proposal, and
+  implement it.
+  Status: completed by Codex on 2026-03-31T20:08:27-07:00. The parent repo now
+  follows the managed `install.sh` plus `scripts/install-stage-2.py` contract,
+  retains `scripts/install_user_tool.py` for stable CLI installs, and passed
+  the full local quality gate plus `53` pytest cases under the refreshed
+  pinned toolchain.

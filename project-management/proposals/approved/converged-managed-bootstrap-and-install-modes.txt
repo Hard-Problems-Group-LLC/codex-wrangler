@@ -1,0 +1,169 @@
+Engineering Change Request: Converged Managed Bootstrap and Install Modes
+========================================================================
+
+Title: Engineering Change Request: Converged Managed Bootstrap and
+Install Modes
+Author: Codex
+Date: 2026-03-31T21:28:54-07:00
+Status: Approved
+Reviewers: operator (repository maintainer), AI maintainers
+Related Work: Direct operator request on 2026-03-31; local `install.sh`
+and `scripts/install-stage-2.py` bootstrap flow; TheKnowledge managed
+starter bootstrap and context templates
+
+Problem Statement
+-----------------
+`codex-wrangler` currently carries a stronger operator-facing bootstrap
+flow than TheKnowledge's managed starter, while TheKnowledge carries a
+stronger managed-template and pinned-context framework than this repo's
+local overrides. That split causes drift. New consuming projects do not get
+the Rocky-and-Ubuntu-tested bootstrap behavior by default, and this repo
+cannot adopt managed starter refreshes cleanly without risking regression or
+partial migration.
+
+Goals
+-----
+- Converge this repository and TheKnowledge on one managed POSIX stage-1 and
+  stage-2 bootstrap design.
+- Keep a minimal shell stage 1 and a Python 3.9-safe stage 2.
+- Make the default runtime model `pyenv` plus repo-local `.venv`, not
+  `pyenv-virtualenv`.
+- Support straightforward project installation in both standard and
+  development modes.
+- Keep `direnv` mandatory for developer installs.
+- Preserve compatibility wrappers long enough to avoid breaking existing
+  workflows.
+
+Non-Goals
+---------
+- Remove project-specific user-install helpers such as
+  `scripts/install_user_tool.py`.
+- Redesign Windows bootstrap flows in the same change.
+- Remove all compatibility wrappers immediately.
+- Change the package's supported runtime floor in `pyproject.toml`.
+
+Use Cases
+---------
+1. A new developer on Ubuntu runs one documented command and gets a working
+   developer checkout with `.venv`, editable install, and `direnv`.
+2. A maintainer on Rocky reruns the managed bootstrap after starter-file
+   refresh without switching mental models.
+3. A new consuming project inherits a default TheKnowledge starter that can
+   install prerequisites, build the repo environment, and install the
+   project in standard or development mode.
+4. `codex-wrangler` keeps its user-level installer for stable CLI use while
+   sharing the developer bootstrap contract with TheKnowledge.
+
+Constraints and Assumptions
+---------------------------
+- Stage-2 bootstrap code must remain Python 3.9-compatible.
+- The default POSIX flow must prefer user-scoped setup over system-wide
+  project pollution.
+- `direnv` is acceptable as a mandatory developer dependency for this repo
+  and for the managed starter's dev mode.
+- Existing TheKnowledge-managed repositories may still depend on the older
+  `bootstrap.sh` and `bootstrap-stage2.py` names.
+
+Proposed Approach
+-----------------
+Adopt TheKnowledge-managed `install.sh` as the canonical POSIX entry point
+and `scripts/install-stage-2.py` as the canonical stage-2 bootstrap script.
+Keep `bootstrap.sh` and `bootstrap-stage2.py` as compatibility wrappers.
+
+Update TheKnowledge's shared bootstrap helpers so the default managed
+configuration installs pinned Python versions with `pyenv`, writes
+`.python-version`, builds repo-local `.venv`, and no longer requires
+`pyenv-virtualenv` when the configured selection name equals the pinned base
+version. Retain compatibility for legacy named `pyenv-virtualenv` contexts
+when a project still declares a distinct environment name.
+
+Make stage 2 support repo-local install modes: development, standard, and
+venv-only. Development mode must ensure `direnv`, update shell hooks with a
+managed block, allow the repo, and install the project editable. Standard
+mode must install the project non-editable into `.venv`. Projects may supply
+an optional install hook for custom behavior.
+
+Adopt that managed design in this repository, keep
+`scripts/install_user_tool.py` as the repo-specific stable user-install
+path, and update docs and tests to treat `./install.sh` as canonical.
+
+Risks and Mitigations
+---------------------
+- Risk: partial starter refresh leaves repositories in a mixed state.
+  Mitigation: fix TheKnowledge's submodule-update helper so it refreshes from
+  the adopted template set, not the pre-update import set.
+- Risk: older projects relying on `pyenv-virtualenv` break.
+  Mitigation: keep compatibility when a context name differs from the base
+  Python version.
+- Risk: automatic shell-hook edits surprise maintainers.
+  Mitigation: use managed begin/end markers and keep the edits idempotent.
+- Risk: standard-mode install semantics vary across projects.
+  Mitigation: provide a documented default path plus an optional project hook.
+
+Testing and Validation
+----------------------
+- Add or update unit tests for the converged bootstrap helpers, stage-2 mode
+  selection, and compatibility wrappers.
+- Validate starter installation and drift reporting in TheKnowledge.
+- Validate this repository's developer bootstrap entry points and local
+  installer behavior.
+- Run the required local quality gates in both repositories before staging.
+
+Alternatives Considered
+-----------------------
+1. Keep this repo's local bootstrap as a permanent override.
+   Rejected because new consuming projects would still miss the improved
+   managed default.
+2. Force this repo to adopt the current TheKnowledge starter unchanged.
+   Rejected because it would lose proven Ubuntu and developer-shell behavior.
+3. Standardize on `pyenv-virtualenv` for the new default.
+   Rejected because `pyenv` plus repo-local `.venv` is simpler and matches
+   the stronger local workflow.
+
+Open Questions
+--------------
+1. Whether future managed starters should also ship a project-install hook
+   template by default.
+   Owner: operator and AI maintainers.
+   Target date: 2026-04-07.
+2. How far Windows bootstrap behavior should be aligned with the new POSIX
+   contract.
+   Owner: TheKnowledge maintainers.
+   Target date: 2026-04-14.
+
+Milestones
+----------
+1. Approve the converged bootstrap direction.
+   Target date: 2026-03-31.
+   Owners: operator, AI maintainers.
+   Dependencies: direct design discussion.
+   Entry criteria: proposal drafted.
+   Exit criteria: operator approves option 3.
+2. Update TheKnowledge managed starter and helper machinery.
+   Target date: 2026-03-31.
+   Owners: AI maintainers.
+   Dependencies: milestone 1.
+   Entry criteria: approved converged design.
+   Exit criteria: templates, docs, and tests reflect the new default.
+3. Adopt the managed design in `codex-wrangler`.
+   Target date: 2026-03-31.
+   Owners: AI maintainers.
+   Dependencies: milestone 2.
+   Entry criteria: TheKnowledge changes are in place locally.
+   Exit criteria: local repo matches the converged bootstrap contract and
+   validates cleanly.
+
+Adoption and Rollout
+--------------------
+Land the managed starter changes in TheKnowledge `trunk` first, then refresh
+and reconcile this repository against that updated starter in the same work
+session. Keep compatibility wrappers so existing consumers can migrate
+without a flag day. Document `./install.sh` as the canonical developer path
+immediately, while treating project-specific user installers as opt-in
+extensions rather than the managed default.
+
+Decision Log
+------------
+- 2026-03-31T21:28:54-07:00 - Drafted and marked approved by Codex after the
+  operator selected the converged managed-bootstrap option for both
+  `codex-wrangler` and TheKnowledge `trunk`.

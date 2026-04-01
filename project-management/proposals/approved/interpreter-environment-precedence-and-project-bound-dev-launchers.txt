@@ -1,0 +1,79 @@
+Engineering Change Request: Interpreter Environment Precedence and Project-Bound Developer Launchers
+====================================================================================================
+
+Title: Engineering Change Request: Interpreter Environment Precedence and
+Project-Bound Developer Launchers
+Author: Codex
+Date: 2026-03-31T20:39:16-07:00
+Status: Approved
+Reviewers: operator (repository maintainer), AI maintainers
+Related Work: `standards-and-practices/docs/Interpreters-and-Package-Management-Environments.md`;
+converged managed bootstrap adoption on 2026-03-31
+
+Problem Statement
+-----------------
+The converged managed bootstrap gives `codex-wrangler` a solid Python
+development environment inside the repository, but it still misses two parts
+of the newly documented environment-precedence standard:
+
+- a development install does not yet force the project-specific override when
+  `codex-wrangler` is launched outside the repository directory; and
+- the normal per-user install does not yet try to reuse a sensible shared
+  user-scoped interpreter family before falling back to the current
+  interpreter.
+
+Goals
+-----
+- Keep the current managed `install.sh` plus `scripts/install-stage-2.py`
+  contract intact.
+- Use the existing `scripts/install_project.py` hook mechanism to make the
+  developer install publish a project-bound launcher in `~/.local/bin`.
+- Remove that project-bound launcher cleanly when standard or venv-only mode
+  replaces the development install.
+- Make `scripts/install_user_tool.py` prefer the managed pyenv runtime when
+  that shared interpreter already exists.
+- Document the behavior clearly in both the repository docs and TheKnowledge.
+
+Non-Goals
+---------
+- Full multi-language implementation of the new interpreter-precedence
+  standard.
+- Automatic Node.js/npm bootstrap in this repository.
+- Solving multi-checkout conflict management for the same global command name
+  beyond a documented "last install wins" rule.
+
+Proposed Approach
+-----------------
+Add a repo-specific `scripts/install_project.py` hook for `codex-wrangler`.
+In development mode, the hook installs the package editable into `.venv` and
+publishes `~/.local/bin/codex-wrangler` as a symlink to this checkout's
+`.venv/bin/codex-wrangler`. That makes the project-specific override win even
+outside the repository directory. In standard and venv-only mode, remove that
+launcher only when it still points at this checkout's repo-local command.
+
+Extend the user-installer helper so it prefers the managed pyenv runtime
+declared in `python-environments.json` when that interpreter already exists.
+Keep the dedicated user venv for package isolation, but reduce redundant
+interpreter copies by reusing the shared runtime family when available.
+
+Risks and Mitigations
+---------------------
+- Risk: the developer launcher overrides a previously installed stable user
+  command.
+  Mitigation: document the precedence clearly and make
+  `scripts/install_user_tool.py` restore the stable user launcher.
+- Risk: standard or venv-only mode removes the wrong launcher.
+  Mitigation: only remove the launcher when it resolves to this checkout's
+  managed repo-local command.
+
+Testing and Validation
+----------------------
+- Add unit tests for launcher ownership/removal and pyenv-runtime selection.
+- Add unit tests for the repo-specific install hook behavior.
+- Rerun the repository pytest suite and local quality gate after the change.
+
+Decision Log
+------------
+- 2026-03-31T20:39:16-07:00 - Approved by the operator after documenting the
+  broader interpreter/package environment standard and requesting that the
+  next implementation slice start immediately.
