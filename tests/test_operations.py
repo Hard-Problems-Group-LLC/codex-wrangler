@@ -2,13 +2,14 @@ import json
 
 import pytest
 
-from codex_wrangler.constants import DEFAULT_STABLE_CODEX_VERSION
+from codex_wrangler.constants import DEFAULT_STABLE_CODEX_SELECTOR
 from codex_wrangler.filesystem import upsert_gitignore_block, write_metadata
 from codex_wrangler.models import CodexWranglerError
 from codex_wrangler.operations import (
     gather_inspection_report,
     install_like_operation,
     selftest_operation,
+    update_operation,
     uninstall_operation,
 )
 from codex_wrangler.rendering import (
@@ -61,13 +62,21 @@ def test_install_like_operation_overwrites_managed_files_without_force(
     tmp_path,
     config_factory,
 ):
-    initial = config_factory(tmp_path, version_source="default install target")
+    initial = config_factory(
+        tmp_path,
+        codex_selector="latest",
+        codex_channel="stable",
+        codex_version="0.29.0",
+        version_source="default stable channel via npm dist-tag latest",
+    )
     target = config_factory(
         tmp_path,
-        operation="downgrade_to_stable",
-        codex_version=DEFAULT_STABLE_CODEX_VERSION,
+        operation="install",
+        codex_selector=DEFAULT_STABLE_CODEX_SELECTOR,
+        codex_channel="stable",
+        codex_version="latest",
         skip_install=True,
-        version_source="latest known stable",
+        version_source="default latest request",
     )
     materialize_managed_install(initial)
 
@@ -79,15 +88,91 @@ def test_install_like_operation_overwrites_managed_files_without_force(
         "codex_wrangler.operations.ensure_command_exists",
         lambda name: None,
     )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.resolve_install_version",
+        lambda config, npm_name: config_factory(
+            tmp_path,
+            operation=config.operation,
+            codex_selector="latest",
+            codex_channel="stable",
+            codex_version="0.30.0",
+            skip_install=config.skip_install,
+            shared_home=config.shared_home,
+            force=config.force,
+            dry_run=config.dry_run,
+            version_source="default latest request",
+            available_versions={
+                "stable": "0.30.0",
+                "beta": "0.31.0-beta.2",
+                "alpha": "0.31.0-alpha.1",
+            },
+        ),
+    )
 
     exit_code = install_like_operation(target)
 
     assert exit_code == 0
     package_json = target.layout.local_package_json_path.read_text(encoding="utf-8")
-    assert DEFAULT_STABLE_CODEX_VERSION in package_json
+    assert "0.30.0" in package_json
     readme = target.layout.readme_path.read_text(encoding="utf-8")
     assert "codex-wrangler --inspect ." in readme
+    assert "Known stable version" in readme
     assert "~/bin" not in readme
+
+
+def test_update_operation_refreshes_known_versions_without_rewriting_package_json(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    config_factory,
+):
+    config = config_factory(
+        tmp_path,
+        operation="update",
+        codex_selector="latest",
+        codex_channel="stable",
+        codex_version="0.29.0",
+        available_versions={
+            "stable": "0.29.0",
+            "beta": "0.30.0-beta.1",
+            "alpha": None,
+        },
+    )
+    materialize_managed_install(config)
+    original_package_json = config.layout.local_package_json_path.read_text(
+        encoding="utf-8"
+    )
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.detect_npm_binaries",
+        lambda: ("npm", "npx"),
+    )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.ensure_command_exists",
+        lambda name: None,
+    )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.fetch_available_codex_versions",
+        lambda npm_name, project_root: {
+            "stable": "0.30.0",
+            "beta": "0.31.0-beta.2",
+            "alpha": "0.31.0-alpha.1",
+        },
+    )
+
+    exit_code = update_operation(config)
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "does not perform an upgrade" in output
+    assert "Known version" in output
+    assert (
+        config.layout.local_package_json_path.read_text(encoding="utf-8")
+        == original_package_json
+    )
+    metadata = json.loads(config.layout.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["available_versions"]["stable"] == "0.30.0"
+    assert metadata["available_versions"]["alpha"] == "0.31.0-alpha.1"
 
 
 def test_gather_inspection_report_surfaces_warnings_and_metadata_mismatch(
@@ -109,6 +194,55 @@ def test_gather_inspection_report_surfaces_warnings_and_metadata_mismatch(
         "codex_wrangler.operations.detect_npm_binaries",
         lambda: ("python3", "python3"),
     )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.collect_runtime_diagnostics",
+        lambda *args, **kwargs: {
+            "resolved_commands": {
+                "node": {
+                    "requested_name": "node",
+                    "resolved_path": "/usr/bin/node",
+                    "version": "v20.11.1",
+                    "found": True,
+                },
+                "npm": {
+                    "requested_name": "python3",
+                    "resolved_path": "/usr/bin/python3",
+                    "version": "3.12.0",
+                    "found": True,
+                },
+                "npx": {
+                    "requested_name": "python3",
+                    "resolved_path": "/usr/bin/python3",
+                    "version": "3.12.0",
+                    "found": True,
+                },
+            },
+            "node_selector_signals": [],
+            "selector_alignment": {
+                "status": "not_applicable",
+                "summary": "No checked-in Node.js selector files were detected.",
+                "signal_count": 0,
+                "explicit_signal_count": 0,
+                "signals_present": False,
+            },
+            "package_manager_declaration": None,
+            "home_configuration": {
+                "mode": "project-local isolated HOME",
+                "inherits_from_parent_process": False,
+                "launcher_environment": {
+                    "HOME": str(config.layout.codex_home_dir),
+                    "XDG_CONFIG_HOME": str(config.layout.codex_home_dir / ".config"),
+                    "XDG_CACHE_HOME": str(config.layout.codex_home_dir / ".cache"),
+                    "XDG_STATE_HOME": str(
+                        config.layout.codex_home_dir / ".local" / "state"
+                    ),
+                    "XDG_DATA_HOME": str(
+                        config.layout.codex_home_dir / ".local" / "share"
+                    ),
+                },
+            },
+        },
+    )
 
     report = gather_inspection_report(config)
 
@@ -118,6 +252,90 @@ def test_gather_inspection_report_surfaces_warnings_and_metadata_mismatch(
     assert any("node_modules is missing" in item for item in report["warnings"])
     assert any(
         "does not match the inspected project root" in item for item in report["issues"]
+    )
+
+
+def test_gather_inspection_report_includes_runtime_selector_warning(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    config = config_factory(tmp_path)
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.detect_npm_binaries",
+        lambda: ("npm", "npx"),
+    )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.collect_runtime_diagnostics",
+        lambda *args, **kwargs: {
+            "resolved_commands": {
+                "node": {
+                    "requested_name": "node",
+                    "resolved_path": "/usr/bin/node",
+                    "version": "v18.19.0",
+                    "found": True,
+                },
+                "npm": {
+                    "requested_name": "npm",
+                    "resolved_path": "/usr/bin/npm",
+                    "version": "10.5.0",
+                    "found": True,
+                },
+                "npx": {
+                    "requested_name": "npx",
+                    "resolved_path": "/usr/bin/npx",
+                    "version": "10.5.0",
+                    "found": True,
+                },
+            },
+            "node_selector_signals": [
+                {
+                    "kind": ".nvmrc",
+                    "path": str(tmp_path / ".nvmrc"),
+                    "raw_value": "20.11.1",
+                    "explicit_version": "20.11.1",
+                    "matches_resolved_node_version": False,
+                }
+            ],
+            "selector_alignment": {
+                "status": "mismatch",
+                "summary": "Resolved node version v18.19.0 does not match selectors.",
+                "signal_count": 1,
+                "explicit_signal_count": 1,
+                "signals_present": True,
+            },
+            "package_manager_declaration": {
+                "path": str(tmp_path / "package.json"),
+                "raw_value": "pnpm@9.1.0",
+                "family": "pnpm",
+                "version": "9.1.0",
+                "read_error": None,
+            },
+            "home_configuration": {
+                "mode": "project-local isolated HOME",
+                "inherits_from_parent_process": False,
+                "launcher_environment": {
+                    "HOME": str(config.layout.codex_home_dir),
+                    "XDG_CONFIG_HOME": str(config.layout.codex_home_dir / ".config"),
+                    "XDG_CACHE_HOME": str(config.layout.codex_home_dir / ".cache"),
+                    "XDG_STATE_HOME": str(
+                        config.layout.codex_home_dir / ".local" / "state"
+                    ),
+                    "XDG_DATA_HOME": str(
+                        config.layout.codex_home_dir / ".local" / "share"
+                    ),
+                },
+            },
+        },
+    )
+
+    report = gather_inspection_report(config)
+
+    assert report["runtime_environment"]["selector_alignment"]["status"] == "mismatch"
+    assert any(
+        "Resolved node version v18.19.0 does not match selectors." in item
+        for item in report["warnings"]
     )
 
 
@@ -165,6 +383,38 @@ def test_selftest_reports_audit_command_failure(
     monkeypatch.setattr(
         "codex_wrangler.operations.gather_inspection_report",
         lambda config: {
+            "runtime_environment": {
+                "resolved_commands": {
+                    "node": {"found": True, "version": "v20.11.1"},
+                    "npm": {"found": True, "version": "10.5.0"},
+                    "npx": {"found": True, "version": "10.5.0"},
+                },
+                "selector_alignment": {
+                    "status": "match",
+                    "summary": "Resolved node version v20.11.1 matches all explicit Node.js selectors.",
+                    "signal_count": 1,
+                    "explicit_signal_count": 1,
+                    "signals_present": True,
+                },
+                "package_manager_declaration": None,
+                "home_configuration": {
+                    "mode": "project-local isolated HOME",
+                    "inherits_from_parent_process": False,
+                    "launcher_environment": {
+                        "HOME": str(config.layout.codex_home_dir),
+                        "XDG_CONFIG_HOME": str(
+                            config.layout.codex_home_dir / ".config"
+                        ),
+                        "XDG_CACHE_HOME": str(config.layout.codex_home_dir / ".cache"),
+                        "XDG_STATE_HOME": str(
+                            config.layout.codex_home_dir / ".local" / "state"
+                        ),
+                        "XDG_DATA_HOME": str(
+                            config.layout.codex_home_dir / ".local" / "share"
+                        ),
+                    },
+                },
+            },
             "state": {
                 "metadata_exists": True,
                 "launcher_matches_expected": True,
@@ -172,7 +422,10 @@ def test_selftest_reports_audit_command_failure(
                 "gitignore_managed_block_present": True,
                 "installed_codex_version_in_lockfile": "0.117.0-alpha.19",
                 "launcher_exists": True,
-            }
+                "node_found": True,
+                "npm_found": True,
+                "npx_found": True,
+            },
         },
     )
 
@@ -196,5 +449,6 @@ def test_selftest_reports_audit_command_failure(
     output = capsys.readouterr().out
 
     assert exit_code == 1
+    assert "[PASS] runtime_selector_alignment -" in output
     assert "[FAIL] npm_audit_clean - network unavailable" in output
     assert "Self-test failed." in output

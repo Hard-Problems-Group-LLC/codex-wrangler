@@ -29,12 +29,6 @@ def eprint(message: str) -> None:
     print(message, file=sys.stderr)
 
 
-def looks_like_alpha(version: str) -> bool:
-    """Return True when a version string looks like a prerelease alpha."""
-
-    return "-alpha." in version
-
-
 def detect_npm_binaries() -> Tuple[str, str]:
     """Return platform-correct executable names for npm and npx."""
 

@@ -11,6 +11,7 @@ from .operations import (
     inspect_operation,
     install_like_operation,
     selftest_operation,
+    update_operation,
     uninstall_operation,
 )
 from .runtime import eprint
@@ -29,6 +30,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return selftest_operation(config)
         if config.operation == "uninstall":
             return uninstall_operation(config)
+        if config.operation == "update":
+            return update_operation(config)
         return install_like_operation(config)
     except CodexWranglerError as exc:
         eprint("ERROR: {}".format(exc))

@@ -10,9 +10,17 @@ import subprocess
 import sys
 from typing import Optional, Sequence
 
+from codex_wrangler.install_scope import (
+    default_pyenv_root as default_install_pyenv_root,
+    default_tool_venv,
+    default_user_bin_dir,
+    describe_user_home_source,
+    resolve_user_home,
+)
+
 DEFAULT_LAUNCHER_NAME = "codex-wrangler"
-DEFAULT_VENV = Path.home() / ".local" / "share" / "codex-wrangler" / "venv"
-DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
+DEFAULT_VENV = default_tool_venv(Path.home(), DEFAULT_LAUNCHER_NAME)
+DEFAULT_BIN_DIR = default_user_bin_dir(Path.home())
 PYTHON_ENVIRONMENTS_FILE = "python-environments.json"
 
 
@@ -26,6 +34,25 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         )
     )
     parser.add_argument(
+        "--user-home",
+        type=Path,
+        default=None,
+        help=(
+            "Explicit user home for the managed install paths and pyenv "
+            "runtime lookup. Required when the current HOME is an isolated "
+            "repo-local Codex home and you intend to target another user "
+            "scope."
+        ),
+    )
+    parser.add_argument(
+        "--allow-isolated-home",
+        action="store_true",
+        help=(
+            "Allow the installer to target the current repo-local Codex home "
+            "when HOME isolation is active."
+        ),
+    )
+    parser.add_argument(
         "--repo-root",
         type=Path,
         default=Path(__file__).resolve().parents[2],
@@ -36,22 +63,28 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=None,
         help=(
             "Python interpreter used to create the dedicated virtual "
-            "environment. When omitted, prefer the managed user-scoped pyenv "
-            "runtime if it already exists, otherwise fall back to the current "
-            "interpreter."
+            "environment. When omitted, prefer the managed pyenv runtime "
+            "under the selected user home if it already exists, otherwise "
+            "fall back to the current interpreter."
         ),
     )
     parser.add_argument(
         "--venv",
         type=Path,
-        default=DEFAULT_VENV,
-        help="Virtual environment path for the installed command.",
+        default=None,
+        help=(
+            "Virtual environment path for the installed command. Defaults to "
+            "<user-home>/.local/share/codex-wrangler/venv."
+        ),
     )
     parser.add_argument(
         "--bin-dir",
         type=Path,
-        default=DEFAULT_BIN_DIR,
-        help="Directory that will receive the user-facing launcher symlink.",
+        default=None,
+        help=(
+            "Directory that will receive the user-facing launcher symlink. "
+            "Defaults to <user-home>/.local/bin."
+        ),
     )
     parser.add_argument(
         "--launcher-name",
@@ -128,33 +161,37 @@ def load_managed_runtime_name(repo_root: Path) -> Optional[str]:
     return selection
 
 
-def default_pyenv_root() -> Path:
-    """Return the preferred user-scoped pyenv root."""
+def default_pyenv_root(user_home: Optional[Path] = None) -> Path:
+    """Return the preferred pyenv root for one selected user home."""
 
-    configured = os.environ.get("PYENV_ROOT")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (Path.home() / ".pyenv").resolve()
+    return default_install_pyenv_root(user_home)
 
 
-def managed_runtime_python(repo_root: Path) -> Optional[Path]:
+def managed_runtime_python(
+    repo_root: Path,
+    user_home: Optional[Path] = None,
+) -> Optional[Path]:
     """Return the managed pyenv runtime Python when it already exists."""
 
     selection = load_managed_runtime_name(repo_root)
     if selection is None:
         return None
-    candidate = pyenv_python_path(default_pyenv_root(), selection)
+    candidate = pyenv_python_path(default_pyenv_root(user_home), selection)
     if candidate.is_file():
         return candidate
     return None
 
 
-def select_install_python(repo_root: Path, explicit_python: Optional[str]) -> str:
+def select_install_python(
+    repo_root: Path,
+    explicit_python: Optional[str],
+    user_home: Optional[Path] = None,
+) -> str:
     """Choose the interpreter used for the dedicated user install."""
 
     if explicit_python:
         return explicit_python
-    managed_python = managed_runtime_python(repo_root)
+    managed_python = managed_runtime_python(repo_root, user_home)
     if managed_python is not None:
         return str(managed_python)
     return sys.executable
@@ -244,10 +281,27 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     args = parse_args(argv or sys.argv[1:])
     repo_root = args.repo_root.resolve()
-    venv_path = args.venv.expanduser().resolve()
-    bin_dir = args.bin_dir.expanduser().resolve()
-    python_executable = select_install_python(repo_root, args.python)
     try:
+        target_user_home = resolve_user_home(
+            repo_root,
+            args.user_home,
+            allow_isolated_home=args.allow_isolated_home,
+        )
+        venv_path = (
+            args.venv.expanduser().resolve()
+            if args.venv is not None
+            else default_tool_venv(target_user_home, DEFAULT_LAUNCHER_NAME)
+        )
+        bin_dir = (
+            args.bin_dir.expanduser().resolve()
+            if args.bin_dir is not None
+            else default_user_bin_dir(target_user_home)
+        )
+        python_executable = select_install_python(
+            repo_root,
+            args.python,
+            target_user_home,
+        )
         venv_python = ensure_virtualenv(python_executable, venv_path)
         install_build_bootstrap(venv_python)
         subprocess.run(
@@ -264,12 +318,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.launcher_name,
             installed_command_path(venv_path),
         )
-    except subprocess.CalledProcessError as error:
+    except (RuntimeError, subprocess.CalledProcessError, OSError, ValueError) as error:
         print("[install-user-tool] FAIL: {}".format(error), file=sys.stderr)
         return 1
 
     print("[install-user-tool] PASS")
     print("Repository: {}".format(repo_root))
+    print("User home: {}".format(target_user_home))
+    print(
+        "User home source: {}".format(
+            describe_user_home_source(repo_root, target_user_home, args.user_home)
+        )
+    )
     print("Python: {}".format(python_executable))
     print("Virtualenv: {}".format(venv_path))
     print("Launcher: {}".format(launcher_path))

@@ -16,6 +16,18 @@ Any project-specific `AGENTS.md` content should go below this line and above
 the managed TheKnowledge footer.
 <!-- THEKNOWLEDGE_MANAGED_HEADER_END -->
 
+## Project-Specific Instructions
+- Maintain the top-level `CHANGELOG.md` using a Keep a Changelog style
+  structure with an `Unreleased` section.
+- Treat `project-management/completed-tasks.txt` as execution history for
+  human and AI work, not as a substitute for the product changelog.
+- Before commit workflows clear
+  `project-management/state/pending-commit-changes.txt`, preserve its notable
+  repository changes in `CHANGELOG.md`.
+- Prefer `python scripts/git_commit_with_changelog.py -m "<subject>"` over a
+  direct call to the TheKnowledge commit helper so the changelog sync happens
+  before the pending-commit queue is truncated.
+
 <!-- THEKNOWLEDGE_MANAGED_FOOTER_START -->
 ---
 

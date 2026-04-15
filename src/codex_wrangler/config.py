@@ -6,17 +6,50 @@ import argparse
 from typing import Optional, Sequence, Tuple
 
 from .constants import (
-    DEFAULT_ALPHA_CODEX_VERSION,
+    CODEX_CHANNELS,
     DEFAULT_HOME_DIR,
-    DEFAULT_INSTALL_CODEX_VERSION,
+    DEFAULT_INSTALL_CODEX_CHANNEL,
+    DEFAULT_INSTALL_CODEX_SELECTOR,
     DEFAULT_LAUNCHER_RELATIVE_PATH,
     DEFAULT_LOCAL_DIR,
     DEFAULT_README_FILENAME,
-    DEFAULT_STABLE_CODEX_VERSION,
 )
 from .layout import build_layout, read_existing_state, resolve_project_root
 from .models import CodexWranglerError, Config, ExistingState
-from .runtime import looks_like_alpha
+from .releases import infer_codex_channel
+
+
+def normalize_requested_version(raw_value: Optional[str]) -> Optional[str]:
+    """Normalize one optional requested version or selector value."""
+
+    if raw_value is None:
+        return None
+    stripped = raw_value.strip()
+    if not stripped:
+        return None
+    if stripped.lower() == "latest":
+        return "latest"
+    return stripped
+
+
+def validate_channel_version_pair(
+    parser: argparse.ArgumentParser,
+    channel: Optional[str],
+    requested_version: Optional[str],
+) -> None:
+    """Reject one explicit channel/version combination when it is incoherent."""
+
+    if channel is None or requested_version is None or requested_version == "latest":
+        return
+    inferred_channel = infer_codex_channel(requested_version)
+    if inferred_channel is None or inferred_channel == channel:
+        return
+    parser.error(
+        "--version {} does not match --channel {}.".format(
+            requested_version,
+            channel,
+        )
+    )
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -30,13 +63,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
         epilog=(
             "Examples:\n"
-            "  install latest alpha:      codex-wrangler .\n"
-            "  inspect current state:     codex-wrangler --inspect .\n"
-            "  self-test current state:   codex-wrangler --selftest .\n"
-            "  upgrade within channel:    codex-wrangler --upgrade .\n"
-            "  upgrade to latest alpha:   codex-wrangler --upgrade-to-alpha .\n"
-            "  downgrade to stable:       codex-wrangler --downgrade-to-stable .\n"
-            "  uninstall managed setup:   codex-wrangler --uninstall .\n"
+            "  install latest stable:      codex-wrangler .\n"
+            "  install latest beta:        codex-wrangler --channel beta .\n"
+            "  refresh known versions:     codex-wrangler --update .\n"
+            "  upgrade to latest alpha:    codex-wrangler --upgrade --channel alpha .\n"
+            "  upgrade to exact beta:      codex-wrangler --upgrade --channel beta --version 0.31.0-beta.2 .\n"
+            "  inspect current state:      codex-wrangler --inspect .\n"
+            "  uninstall managed setup:    codex-wrangler --uninstall .\n"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -64,23 +97,32 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         ),
     )
     operation_group.add_argument(
+        "--update",
+        action="store_true",
+        help=(
+            "Refresh the locally known latest stable, beta, and alpha Codex "
+            "versions without changing the installed package."
+        ),
+    )
+    operation_group.add_argument(
         "--upgrade",
         action="store_true",
         help=(
-            "Upgrade the managed install while preserving its current "
-            "channel. Alpha stays on the latest alpha; stable stays on the "
-            "latest stable."
+            "Upgrade the managed install to one explicitly chosen channel. "
+            "Requires --channel."
         ),
     )
     operation_group.add_argument(
         "--upgrade-to-alpha",
+        dest="compat_upgrade_alpha",
         action="store_true",
-        help="Upgrade or install to the latest known alpha version.",
+        help=argparse.SUPPRESS,
     )
     operation_group.add_argument(
         "--downgrade-to-stable",
+        dest="compat_upgrade_stable",
         action="store_true",
-        help="Downgrade or install to the latest known stable version.",
+        help=argparse.SUPPRESS,
     )
 
     parser.add_argument(
@@ -90,13 +132,28 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Target project directory. Defaults to the current directory.",
     )
     parser.add_argument(
-        "--codex-version",
+        "--channel",
+        choices=CODEX_CHANNELS,
+        help=(
+            "Codex release channel for install or upgrade. Required for "
+            "--upgrade. Defaults to stable for install."
+        ),
+    )
+    parser.add_argument(
+        "--version",
+        dest="requested_version",
         default=None,
         help=(
-            "Exact @openai/codex version to pin for install or upgrade. If "
-            "not specified, the script chooses a version based on the "
-            "requested mode."
+            "Exact @openai/codex version to install or upgrade to, or "
+            "`latest` (case-insensitive) for the selected channel. "
+            "Default: latest"
         ),
+    )
+    parser.add_argument(
+        "--codex-version",
+        dest="requested_version",
+        default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--local-dir",
@@ -177,7 +234,27 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "filesystem or running npm install/uninstall commands."
         ),
     )
-    return parser.parse_args(argv)
+
+    args = parser.parse_args(argv)
+    args.requested_version = normalize_requested_version(args.requested_version)
+
+    if args.compat_upgrade_alpha:
+        args.upgrade = True
+        args.channel = "alpha"
+    if args.compat_upgrade_stable:
+        args.upgrade = True
+        args.channel = "stable"
+
+    if args.update and args.channel:
+        parser.error("--channel is not valid with --update.")
+    if args.update and args.requested_version is not None:
+        parser.error("--version is not valid with --update.")
+    validate_channel_version_pair(parser, args.channel, args.requested_version)
+    if args.upgrade and not args.channel:
+        parser.error("--upgrade requires --channel <stable|beta|alpha>.")
+    if args.upgrade and args.skip_install:
+        parser.error("--skip-install is not valid with --upgrade.")
+    return args
 
 
 def determine_operation(args: argparse.Namespace) -> str:
@@ -189,12 +266,10 @@ def determine_operation(args: argparse.Namespace) -> str:
         return "selftest"
     if args.uninstall:
         return "uninstall"
+    if args.update:
+        return "update"
     if args.upgrade:
         return "upgrade"
-    if args.upgrade_to_alpha:
-        return "upgrade_to_alpha"
-    if args.downgrade_to_stable:
-        return "downgrade_to_stable"
     return "install"
 
 
@@ -211,44 +286,74 @@ def determine_shared_home(
     return False
 
 
-def determine_target_version(
+def existing_codex_state(
+    existing: ExistingState,
+) -> Tuple[str, Optional[str], str, str]:
+    """Return the currently recorded Codex selector, channel, version, and source."""
+
+    selector = existing.requested_codex_selector or existing.pinned_codex_version
+    if selector is None:
+        selector = DEFAULT_INSTALL_CODEX_SELECTOR
+    channel = (
+        existing.codex_channel
+        or infer_codex_channel(selector)
+        or infer_codex_channel(existing.pinned_codex_version)
+    )
+    version = existing.pinned_codex_version or selector
+    source = "existing managed files"
+    if existing.metadata:
+        source = "existing metadata"
+        metadata_source = existing.metadata.get("version_source")
+        if isinstance(metadata_source, str) and metadata_source:
+            source = metadata_source
+    return selector, channel, version, source
+
+
+def determine_target_selection(
     args: argparse.Namespace,
     existing: ExistingState,
     operation: str,
-) -> Tuple[str, str]:
-    """Resolve the exact Codex version that should be targeted."""
+) -> Tuple[str, Optional[str], str, str]:
+    """Resolve the requested Codex selector, channel, version, and source."""
 
-    if operation in ("inspect", "selftest", "uninstall"):
-        if args.codex_version:
-            return args.codex_version, "explicit --codex-version"
-        if existing.pinned_codex_version:
-            source = "existing metadata"
-            if existing.metadata:
-                metadata_source = existing.metadata.get("version_source")
-                if isinstance(metadata_source, str) and metadata_source:
-                    source = metadata_source
-            return existing.pinned_codex_version, source
-        return DEFAULT_INSTALL_CODEX_VERSION, "inspection-context"
+    if operation in ("inspect", "selftest", "uninstall", "update"):
+        return existing_codex_state(existing)
 
-    if args.codex_version:
-        return args.codex_version, "explicit --codex-version"
-
+    requested_version = args.requested_version
     if operation == "install":
-        return DEFAULT_INSTALL_CODEX_VERSION, "default install target"
-
-    if operation == "upgrade_to_alpha":
-        return DEFAULT_ALPHA_CODEX_VERSION, "latest known alpha"
-
-    if operation == "downgrade_to_stable":
-        return DEFAULT_STABLE_CODEX_VERSION, "latest known stable"
+        channel = args.channel
+        if requested_version is None:
+            requested_version = "latest"
+        if channel is None:
+            channel = (
+                infer_codex_channel(requested_version) or DEFAULT_INSTALL_CODEX_CHANNEL
+            )
+        if requested_version == "latest":
+            source = "default latest request"
+            if args.channel is not None:
+                source = "explicit --channel latest request"
+            return "latest", channel, "latest", source
+        return requested_version, channel, requested_version, "explicit --version"
 
     if operation == "upgrade":
-        prior = existing.pinned_codex_version
-        if prior and looks_like_alpha(prior):
-            return DEFAULT_ALPHA_CODEX_VERSION, "preserved alpha channel"
-        if prior:
-            return DEFAULT_STABLE_CODEX_VERSION, "preserved stable channel"
-        return DEFAULT_INSTALL_CODEX_VERSION, "default upgrade target"
+        channel = args.channel
+        if channel is None:
+            raise CodexWranglerError("Upgrade requires --channel <stable|beta|alpha>.")
+        if requested_version is None:
+            requested_version = "latest"
+        if requested_version == "latest":
+            return (
+                "latest",
+                channel,
+                "latest",
+                "latest request for {} channel".format(channel),
+            )
+        return (
+            requested_version,
+            channel,
+            requested_version,
+            "explicit --version for {} channel".format(channel),
+        )
 
     raise CodexWranglerError("Unknown operation: {}".format(operation))
 
@@ -267,11 +372,15 @@ def config_from_args(args: argparse.Namespace) -> Config:
     operation = determine_operation(args)
     existing = read_existing_state(layout)
     shared_home = determine_shared_home(args, existing)
-    codex_version, version_source = determine_target_version(args, existing, operation)
+    codex_selector, codex_channel, codex_version, version_source = (
+        determine_target_selection(args, existing, operation)
+    )
 
     return Config(
         operation=operation,
         project_root=project_root,
+        codex_selector=codex_selector,
+        codex_channel=codex_channel,
         codex_version=codex_version,
         shared_home=shared_home,
         skip_install=bool(args.skip_install),
@@ -279,4 +388,6 @@ def config_from_args(args: argparse.Namespace) -> Config:
         dry_run=bool(args.dry_run),
         layout=layout,
         version_source=version_source,
+        available_versions=dict(existing.available_versions),
+        available_versions_updated_at=existing.available_versions_updated_at,
     )

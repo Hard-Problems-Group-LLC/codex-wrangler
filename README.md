@@ -15,13 +15,30 @@ It creates and manages a disciplined local layout:
 
 The utility also supports:
 
-- installation of the latest known alpha by default
+- installation of the current stable Codex release by default
 - JSON inspection with `--inspect`
 - pessimistic verification with `--selftest`
 - conservative removal with `--uninstall`
+- version-catalog refresh with `--update`
 - channel-aware upgrades with `--upgrade`
-- explicit `--upgrade-to-alpha`
-- explicit `--downgrade-to-stable`
+- exact-version targeting with `--version latest|x.y.z`
+
+## Changelog
+
+This repository keeps a top-level [CHANGELOG.md](/home/mheck/codebase/HPG/actual/codex-wrangler/CHANGELOG.md)
+in Keep a Changelog style. The repo's short-lived
+`project-management/state/pending-commit-changes.txt` queue is still used for
+commit-body text, but this repo now mirrors those notable changes into the
+`Unreleased` changelog section before commit.
+
+For normal local commit-and-push flow, use:
+
+```bash
+python scripts/git_commit_with_changelog.py -m "Your subject"
+```
+
+That helper updates `CHANGELOG.md` first, then delegates to
+`python TheKnowledge/scripts/git_standard_commit_push.py`.
 
 ## Quick Start
 
@@ -91,6 +108,15 @@ Those modes are the shared TheKnowledge-managed bootstrap contract. This
 repository keeps `scripts/install_user_tool.py` in addition to that contract
 because it is also a CLI tool that benefits from a stable user-level command.
 
+When you run the managed installers from a `codex-local` shell that has
+redirected `HOME` into the repository's `.codex-home`, user-scoped effects
+are now intentionally explicit. `./install.sh`, `./install.sh --mode dev`,
+`./install.sh --mode venv-only`, and `python3 scripts/install_user_tool.py`
+refuse to target that isolated home silently. In that situation, rerun from a
+normal terminal, pass `--user-home /real/home` to target an operator home
+explicitly, or pass `--allow-isolated-home` when you deliberately want an
+AI-local install rooted in the isolated home.
+
 ## Low-Level User Installer Helper
 
 `./install.sh` is the preferred normal-install entry point. Use the repository
@@ -104,11 +130,16 @@ python3 scripts/install_user_tool.py
 ```
 
 That creates the same style of dedicated virtual environment under
-`~/.local/share/codex-wrangler/venv`, installs `codex-wrangler` there, and
-links `~/.local/bin/codex-wrangler` to the venv-managed command. When the
-managed pyenv runtime from `python-environments.json` already exists, the
-installer reuses that shared user-scoped interpreter family for the user venv
-instead of defaulting immediately to the current system interpreter.
+`<user-home>/.local/share/codex-wrangler/venv`, installs `codex-wrangler`
+there, and links `<user-home>/.local/bin/codex-wrangler` to the venv-managed
+command. When the managed pyenv runtime from `python-environments.json`
+already exists, the installer reuses that shared interpreter family for the
+selected user home instead of defaulting immediately to the current system
+interpreter.
+
+Use `--user-home /path/to/home` when the current process `HOME` is not the
+user scope you intend to manage. Use `--allow-isolated-home` only when an
+isolated repo-local Codex home should receive the install on purpose.
 
 This path works on Ubuntu and other distributions that block
 `python3 -m pip install --user ...` via PEP 668.
@@ -183,7 +214,7 @@ command -v codex-wrangler
 
 ## Typical Usage
 
-Initialize the current repository with the latest known alpha:
+Initialize the current repository with the current stable release:
 
 ```bash
 codex-wrangler .
@@ -201,22 +232,24 @@ Self-test the managed state:
 codex-wrangler --selftest .
 ```
 
-Upgrade while preserving the current channel:
+Refresh the locally known stable, beta, and alpha versions:
 
 ```bash
-codex-wrangler --upgrade .
+codex-wrangler --update .
 ```
 
-Upgrade explicitly to the latest known alpha:
+Upgrade to the latest known stable, beta, or alpha version:
 
 ```bash
-codex-wrangler --upgrade-to-alpha .
+codex-wrangler --upgrade --channel stable .
+codex-wrangler --upgrade --channel beta .
+codex-wrangler --upgrade --channel alpha .
 ```
 
-Downgrade explicitly to the latest known stable:
+Upgrade to one exact version:
 
 ```bash
-codex-wrangler --downgrade-to-stable .
+codex-wrangler --upgrade --channel beta --version 0.31.0-beta.2 .
 ```
 
 Uninstall the managed setup:
@@ -224,6 +257,12 @@ Uninstall the managed setup:
 ```bash
 codex-wrangler --uninstall .
 ```
+
+`codex-wrangler` resolves the exact release for stable, beta, and alpha
+channels at install time from npm dist-tags, then writes that exact version
+plus the known channel catalog into managed metadata. `--update` refreshes
+that local catalog without changing the install, and `--upgrade --channel ...`
+uses the recorded catalog unless you supply an explicit exact `--version`.
 
 
 ## TheKnowledge Submodule
@@ -248,6 +287,61 @@ artifacts inside that target repository:
 - `bin/codex-local`
 - `README-LOCAL-Start-Codex.md`
 - a marked `.gitignore` block
+
+## Runtime Boundary
+
+`codex-wrangler` localizes the `@openai/codex` package install under
+`.codex-local/` and, by default, localizes Codex state under `.codex-home/`.
+It does not currently install or pin the `node`, `npm`, or `npx` executables
+used by `bin/codex-local`.
+
+The generated launcher runs `npx --prefix "$local_prefix" codex "$@"`, so the
+Node.js runtime family comes from the shell `PATH` that launched the command.
+
+## Trust and Install Scope
+
+`codex-wrangler` now treats user-scoped install targets as an explicit trust
+boundary.
+
+- Less-trusted AI or isolated `codex-local` sessions should normally stay in
+  repo scope and should not mutate an operator's shell init, `~/.local/bin`,
+  or `~/.pyenv` implicitly.
+- More-trusted AI can still manage its own user scope, but that should be its
+  own explicit home directory, not an accidental by-product of whatever
+  `HOME` the current session inherited.
+- Operator-user installs remain supported, but when the current `HOME` is the
+  repo-local `.codex-home`, they now require `--user-home /path/to/home`
+  instead of silently targeting the wrong scope.
+- System installs remain separate and still require `sudo ./install.sh
+  --system`.
+
+This is the current middle ground: repo-local work remains easy, AI-local
+user installs remain possible with explicit intent, and operator-user installs
+no longer ride on an ambiguous `HOME`.
+In a project that already uses `direnv`, `nvm`, `fnm`, `asdf`, `volta`, or a
+similar selector, start `bin/codex-local` from the same project-activated
+shell a human operator would use. That keeps Codex sessions and the agent
+sandboxes they launch closer to the same interpreter view as the rest of the
+project.
+
+The generated launcher now performs a cheap startup preflight before it starts
+Codex. By default it warns when required `node`/`npm`/`npx` commands are
+missing or when a checked-in Node.js selector such as `.nvmrc`,
+`.node-version`, or `.tool-versions` appears inconsistent with the active
+shell. Use `CODEX_LOCAL_PREFLIGHT=warn`, `strict`, or `off` to control that
+behavior.
+
+The launcher also redirects `HOME` and related `XDG_*` paths into
+`.codex-home/` unless `--shared-home` is used. That isolation keeps Codex
+state project-local, but it can change how tools that consult `HOME` resolve
+their config. `codex-wrangler` intentionally does not mutate the target
+project's own Python or Node configuration files unless some separate
+bootstrap feature is added explicitly.
+
+`codex-wrangler --inspect` and `--selftest` now also report the resolved
+`node`, `npm`, and `npx` paths and versions, detected checked-in Node.js
+selectors, any root `package.json` package-manager declaration, and the
+effective `HOME` and `XDG_*` paths the launcher will expose.
 
 ## Safety Notes
 

@@ -114,20 +114,59 @@ def read_existing_state(layout: Layout) -> ExistingState:
     """Read any previously managed state available at the target paths."""
 
     metadata = read_json_file(layout.metadata_path)
+    requested_codex_selector = None
+    codex_channel = None
     pinned_codex_version = None
+    available_versions: Dict[str, Optional[str]] = {}
+    available_versions_updated_at = None
     shared_home = None
 
     if metadata:
+        requested_codex_selector = metadata.get("codex_selector")
+        codex_channel = metadata.get("codex_channel")
         pinned_codex_version = metadata.get("codex_version")
+        raw_available_versions = metadata.get("available_versions")
+        if isinstance(raw_available_versions, dict):
+            for raw_channel, raw_version in raw_available_versions.items():
+                if not isinstance(raw_channel, str):
+                    continue
+                if isinstance(raw_version, str):
+                    available_versions[raw_channel] = raw_version
+                elif raw_version is None:
+                    available_versions[raw_channel] = None
+        raw_updated_at = metadata.get("available_versions_updated_at")
+        if isinstance(raw_updated_at, str):
+            available_versions_updated_at = raw_updated_at
         raw_shared_home = metadata.get("shared_home")
         if isinstance(raw_shared_home, bool):
             shared_home = raw_shared_home
 
+    # Metadata is authoritative when present, but conservative fallback
+    # inference keeps update/inspect useful for older managed installs.
+    if requested_codex_selector is None:
+        requested_codex_selector = infer_requested_version_from_package_json(
+            layout.local_package_json_path
+        )
+    if pinned_codex_version is None:
+        pinned_codex_version = infer_installed_version_from_lockfile(
+            layout.local_package_lock_path
+        )
+    if pinned_codex_version is None:
+        pinned_codex_version = requested_codex_selector
+
     return ExistingState(
         metadata=metadata,
+        requested_codex_selector=(
+            requested_codex_selector
+            if isinstance(requested_codex_selector, str)
+            else None
+        ),
+        codex_channel=codex_channel if isinstance(codex_channel, str) else None,
         pinned_codex_version=(
             pinned_codex_version if isinstance(pinned_codex_version, str) else None
         ),
+        available_versions=available_versions,
+        available_versions_updated_at=available_versions_updated_at,
         shared_home=shared_home,
     )
 

@@ -5,6 +5,136 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-04-15T14:17:07-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: split Codex version-catalog refresh from package upgrades.
+  `codex-wrangler --update` now refreshes locally known stable, beta, and
+  alpha versions without changing the installed package; `--upgrade` now
+  requires `--channel`; `--version` now accepts exact versions or
+  case-insensitive `latest`; managed metadata now records channel and known
+  version tables; and the generated launcher now emits a local update notice
+  when the installed Codex version is behind the locally known version on its
+  channel. Added fallback state inference for older managed installs so
+  package files remain usable when the newer metadata fields are missing.
+  Added repo-local cached quality-gate helper wrappers so the standard commit
+  helper can run from this repository root. Updated README text, generated
+  local README content, and tests to match the new contract. Dog-fooded the
+  real user-local install plus a repo-local stable-channel upgrade and
+  confirmed `codex-cli 0.121.0` with matching metadata and no inspect
+  warnings.
+  Validation: `/home/mheck/.pyenv/versions/3.12.11/envs/autotomato-runtime-3.12/bin/python
+  -m compileall src tests` passed. `PYTHONPATH=src
+  /home/mheck/.pyenv/versions/3.12.11/envs/autotomato-runtime-3.12/bin/python
+  -m pytest -q tests/test_config.py tests/test_releases.py
+  tests/test_rendering.py tests/test_operations.py tests/test_entrypoints.py`
+  passed with `44` tests green. `PYTHONPATH=src
+  /home/mheck/.pyenv/versions/3.12.11/envs/autotomato-runtime-3.12/bin/python
+  -m pytest -q` passed with `110` tests green. `/home/mheck/.pyenv/versions/3.12.11/envs/autotomato-runtime-3.12/bin/python
+  -m ruff check src/codex_wrangler/config.py src/codex_wrangler/layout.py
+  src/codex_wrangler/releases.py src/codex_wrangler/rendering.py
+  tests/test_config.py tests/test_releases.py` passed. `codex-wrangler
+  --inspect .` reported no warnings or issues after the stable-channel
+  upgrade, `./bin/codex-local --version` returned `codex-cli 0.121.0`, and
+  `python scripts/run_quality_gate_cached.py --show-cache` succeeded from the
+  repository root.
+
+*
+  Completed: 2026-04-15T12:33:07-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: added a top-level `CHANGELOG.md` in Keep a Changelog style,
+  introduced `src/codex_wrangler/changelog.py` plus
+  `scripts/git_commit_with_changelog.py` so this repository can preserve
+  notable pending-commit summaries in the changelog before the standard
+  TheKnowledge commit helper clears the queue, and updated AGENTS, README,
+  development docs, git-flow, and state-file guidance to make that workflow
+  the local standard. The repo now explicitly treats
+  `project-management/completed-tasks.txt` as operational history rather than
+  product change history. Drafted the upstream SOP request in
+  `ECRs/TheKnowledge/changelog-sop-and-pending-queue-preservation.md`.
+  Validation: `python3 -m compileall src tests scripts` passed. `git diff
+  --check` passed. `python3 scripts/git_commit_with_changelog.py --help`
+  passed. `python3 scripts/git_commit_with_changelog.py --dry-run
+  --assume-reviewed -m "Smoke test changelog sync"` passed and confirmed the
+  wrapper recognized already-recorded queue entries instead of duplicating
+  them. `pytest` remained unavailable in the current interpreters, so the
+  full test suite could not be executed here.
+
+* 
+  Completed: 2026-04-14T17:13:43-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: hardened the installer trust boundary around isolated AI homes.
+  Added `src/codex_wrangler/install_scope.py`, a compact specification, and
+  an approved proposal for explicit user-home targeting. Updated
+  `scripts/install-stage-2.py` and `src/codex_wrangler/installer.py` so
+  user-scoped pyenv, launcher, direnv, and shell-init effects now refuse to
+  target a repo-local `.codex-home` silently; operators must provide
+  `--user-home PATH` or `--allow-isolated-home` in that situation. Refreshed
+  README and development docs, and added tests for explicit user-home
+  resolution plus isolated-home rejection.
+  Validation: `python3 -m compileall src tests scripts` passed. `git diff
+  --check` passed. `python3 scripts/install-stage-2.py --help` and
+  `python3 scripts/install_user_tool.py --help` passed and showed the new
+  flags. `python3 scripts/install-stage-2.py --force-direct-run
+  --skip-submodule-init` and `python3 scripts/install_user_tool.py
+  --repo-root .` both failed fast in the current isolated session with the
+  expected explicit-targeting guidance. `pytest` remained unavailable in the
+  current interpreters, so the full test suite could not be executed here.
+
+*
+  Completed: 2026-04-14T14:40:27-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: implemented the approved runtime-fidelity recommendations. Added a
+  compact specification plus an approved proposal record, introduced
+  `src/codex_wrangler/environment.py` for runtime-signal detection and
+  resolved-command reporting, extended inspect and self-test output with
+  resolved `node`/`npm`/`npx`, selector, package-manager, and `HOME`/`XDG_*`
+  diagnostics, and updated the generated launcher to run a cheap
+  selector-aware preflight with `CODEX_LOCAL_PREFLIGHT=warn|strict|off`.
+  Updated tests and user-facing docs to cover the new behavior, and refreshed
+  the repo's own generated `bin/codex-local` launcher.
+  Validation: `python3 -m compileall src tests` passed. `bash -n
+  bin/codex-local` passed. `python3 ./codex-wrangler.py --inspect .` passed
+  with the new runtime diagnostics visible. `./bin/codex-local --version`
+  passed. A throwaway temp-tree smoke check showed warn mode continuing and
+  strict mode failing on an explicit `.node-version` mismatch. `pytest` was
+  not available in the current interpreters, so the test suite could not be
+  executed here.
+
+*
+  Completed: 2026-04-14T14:20:29-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: revised the under-review runtime-fidelity proposal into a concrete
+  recommendation-led review draft. The proposal now explicitly assesses how
+  the intended resulting-project model aligns with modern development and
+  security practices, identifies the determinism-versus-isolation tension, and
+  recommends a phased change sequence around diagnostics, selector-aware
+  preflight, `.codex-home` observability, and parity smoke checks.
+  Validation: manual review confirmed the proposal now captures the requested
+  policy direction and concrete change set for operator review.
+
+*
+  Completed: 2026-04-14T14:14:35-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: documented the current `codex-wrangler` runtime boundary in the
+  README, including the fact that `bin/codex-local` localizes the Codex npm
+  package tree and Codex state but still resolves `node`, `npm`, and `npx`
+  from the active shell `PATH`. Added an under-review proposal that records
+  the desired resulting-project model, the human-versus-agent sandbox parity
+  concern, and recommended phased future work around runtime diagnostics and
+  alignment policy.
+  Validation: `git diff --check` passed. `python3
+  scripts/run_local_quality_gate.py` failed immediately because
+  `/usr/bin/python3` in the current environment does not have the `black`
+  package installed. Manual review confirmed the new README section and the
+  proposal record match the operator discussion.
+
+*
   Completed: 2026-04-01T10:20:15-07:00.
   Owner: Codex.
   Requestor: operator.

@@ -17,6 +17,79 @@ Completed Requests
 ------------------
 
 *
+  2026-04-15T14:17:07-07:00
+  Requestor: operator
+  Action: Split Codex version-catalog refresh from package upgrades, require
+  explicit upgrade channels, add `--version latest|x.y.z`, surface local
+  update availability from launcher metadata, and dog-food the result through
+  a real user-local install plus a repo-local stable-channel upgrade.
+  Status: completed by Codex on 2026-04-15T14:17:07-07:00. The repository
+  now treats `--update` as a metadata refresh only, requires `--channel` for
+  `--upgrade`, accepts case-insensitive `latest` or exact versions through
+  `--version`, records stable/beta/alpha availability in managed metadata,
+  warns from `bin/codex-local` when a newer locally known channel version is
+  available, and falls back to older managed package files when newer metadata
+  fields are absent. Added repo-local cached quality-gate helper wrappers so
+  the standard commit helper can run from this repository root. README,
+  generated local README content, and tests were updated. Real-install
+  dogfooding in this repo confirmed a clean stable upgrade to `codex-cli
+  0.121.0` with matching metadata and no inspect warnings.
+
+*
+  2026-04-15T12:33:07-07:00
+  Requestor: operator
+  Action: Add a real changelog, require its maintenance in repo guidance, keep
+  `completed-tasks.txt` distinct from product change history, and draft a
+  TheKnowledge ECR so changelog preservation can become SOP upstream.
+  Status: completed by Codex on 2026-04-15T12:33:07-07:00. The repository
+  now has `CHANGELOG.md`, a repo-local commit wrapper that preserves pending
+  queue entries in the changelog before delegating to TheKnowledge's standard
+  commit helper, updated AGENTS and workflow docs, and a draft upstream ECR
+  under `ECRs/TheKnowledge/`.
+
+*
+  2026-04-14T17:13:43-07:00
+  Requestor: operator
+  Action: Proceed with the installer trust-boundary hardening so ambiguous
+  isolated `HOME` sessions stop silently targeting the wrong user scope.
+  Status: completed by Codex on 2026-04-14T17:13:43-07:00. The repository
+  now has an approved proposal and specification for explicit user-home
+  targeting, shared install-scope helpers, installer flags for
+  `--user-home` and `--allow-isolated-home`, updated docs and help text, and
+  tests plus smoke checks covering isolated-home rejection.
+
+*
+  2026-04-14T14:40:27-07:00
+  Requestor: operator
+  Action: Document the runtime-fidelity discussion fully and implement the
+  approved startup-preflight and runtime-diagnostics recommendations.
+  Status: completed by Codex on 2026-04-14T14:40:27-07:00. The repository
+  now has an approved proposal, a compact specification, launcher preflight
+  support, richer inspect and self-test diagnostics, updated docs, and test
+  coverage for the new runtime-resolution behavior.
+
+*
+  2026-04-14T14:20:29-07:00
+  Requestor: operator
+  Action: Refine the runtime-fidelity draft into a reviewable proposal with
+  recommended changes and an explicit development-versus-security assessment.
+  Status: completed by Codex on 2026-04-14T14:20:29-07:00. The under-review
+  proposal now leads with the best-practice assessment, recommends a concrete
+  change sequence, and frames the launcher and sandbox tradeoffs in reviewable
+  terms.
+
+*
+  2026-04-14T14:14:35-07:00
+  Requestor: operator
+  Action: Document the desired resulting-project runtime model, the current
+  `codex-wrangler` situation, and recommended future work around runtime
+  fidelity and sandbox alignment.
+  Status: completed by Codex on 2026-04-14T14:14:35-07:00. The repository
+  now has a README runtime-boundary clarification plus an under-review
+  proposal that records the design tension, current launcher behavior, and
+  phased follow-up recommendations.
+
+*
   2026-04-01T10:20:15-07:00
   Requestor: operator
   Action: Investigate and correct the `install.sh` standard-install failure

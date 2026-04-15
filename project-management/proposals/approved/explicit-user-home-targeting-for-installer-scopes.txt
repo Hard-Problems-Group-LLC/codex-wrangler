@@ -1,0 +1,104 @@
+Engineering Change Request: Explicit User-Home Targeting for Installer Scopes
+=============================================================================
+
+Title: Engineering Change Request: Explicit User-Home Targeting for Installer
+Scopes
+Author: Codex
+Date: 2026-04-14T18:56:26-07:00
+Status: Approved
+Reviewers: operator (repository maintainer), AI maintainers
+Related Work: Direct operator request on 2026-04-14;
+`docs/specifications/explicit_user_home_targeting_for_installers.txt`;
+`README.md` install notes; `DEVELOPMENT.md` bootstrap notes
+
+Problem Statement
+-----------------
+`codex-wrangler` already distinguishes repo-local, user-local, and
+system-local install outcomes. The remaining ambiguity is that the installer
+flows have treated the current process `HOME` as if it were automatically the
+intended user scope for pyenv, direnv, shell-init, `~/.local/bin`, and
+user-local virtual-environment paths.
+
+That assumption breaks down in a `codex-local` session that redirects `HOME`
+into the repository's `.codex-home`. In that context, the current `HOME` is a
+synthetic AI-local scope, not necessarily the operator's real user home. A
+less-trusted AI should not silently mutate operator-user state, and a
+more-trusted AI should still make any broader scope choice explicitly.
+
+Trust Model
+-----------
+The reviewed middle ground is:
+
+- less-trusted AI remains effectively repo-scoped by default;
+- more-trusted AI may manage its own user-scoped state, but that scope should
+  still be explicit;
+- operator-user installs remain supported, but they should not be inferred
+  from an ambiguous isolated `HOME`; and
+- system installs remain separate and continue to require explicit privilege.
+
+This keeps the blast radius of an isolated AI home useful without pretending
+that "current `HOME`" always names the operator's intended user scope.
+
+Recommended Changes
+-------------------
+1. Keep the existing `repo`, `user`, and `system` install scopes.
+   Do not add a second runtime bootstrap taxonomy solely to describe trust
+   tiers.
+2. Add explicit target-home controls.
+   User-scoped installer entry points should support:
+   - `--user-home PATH` for explicit operator-user or alternate-user
+     targeting; and
+   - `--allow-isolated-home` for intentional AI-local installs into the
+     current isolated Codex home.
+3. Fail fast on ambiguous isolated homes.
+   When `HOME` resolves to the current repository's `.codex-home`, refuse
+   user-scoped effects by default until one of the approved explicit controls
+   is provided.
+4. Derive all user-scoped paths from the selected home.
+   That includes pyenv roots, user-local launcher directories, user-local
+   virtual-environment locations, and any auto-installed `direnv` binary.
+5. Document the policy plainly.
+   README and development docs should explain that the repository now treats
+   operator-user, AI-user, and system scope as distinct trust decisions even
+   though the CLI still exposes the original install-mode vocabulary.
+
+Implementation Notes
+--------------------
+- The managed `install.sh` plus `scripts/install-stage-2.py` flow should use
+  explicit user-home resolution for both standard user installs and repo-local
+  development bootstrap, because repo-local development mode still performs
+  user-scoped pyenv, direnv, and shell-init work.
+- The low-level `scripts/install_user_tool.py` helper should follow the same
+  target-home rules so the repository does not expose a bypass around the new
+  safeguard.
+- Success output should report the selected user home and whether it came from
+  the current process or an explicit override.
+
+Risks and Mitigations
+---------------------
+- Risk: the new guard makes installer invocations from inside `codex-local`
+  more verbose.
+  Mitigation: the change is limited to ambiguous isolated-home cases and
+  offers two clear escape hatches.
+- Risk: explicit targeting looks like a new scope system.
+  Mitigation: keep the install scopes unchanged and document the new flags as
+  target-home selectors, not as a separate bootstrap regime.
+- Risk: current operators may expect installs from an isolated AI session to
+  "just work."
+  Mitigation: fail with a direct message that tells them exactly how to rerun
+  the command safely.
+
+Validation
+----------
+- Add unit tests for isolated-home rejection and explicit user-home
+  resolution.
+- Update installer help text and repository docs.
+- Run lightweight syntax and compile checks in environments where the full
+  pinned test toolchain is not available.
+
+Decision Log
+------------
+- 2026-04-14T18:37:11-07:00 - Operator raised the trust-tier question and the
+  distinction between AI-local homes and operator homes.
+- 2026-04-14T18:56:26-07:00 - Approved to proceed with explicit user-home
+  targeting rather than silently following an isolated `HOME`.

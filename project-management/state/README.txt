@@ -7,5 +7,8 @@ consuming project's own repository rather than inside TheKnowledge.
 Files
 -----
 - `pending-commit-changes.txt`: queue brief commit-ready summaries here while
-  work is in flight. The standardized commit helper uses the nonblank contents
-  as commit body text and clears the file after a successful local commit.
+  work is in flight. In this repository, `python
+  scripts/git_commit_with_changelog.py -m "<subject>"` mirrors the nonblank
+  contents into `CHANGELOG.md` before delegating to the standardized commit
+  helper. The delegated helper then uses the same contents as commit body text
+  and clears the file after a successful local commit.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -37,6 +37,8 @@ class Config:
 
     operation: str
     project_root: Path
+    codex_selector: str
+    codex_channel: Optional[str]
     codex_version: str
     shared_home: bool
     skip_install: bool
@@ -44,15 +46,21 @@ class Config:
     dry_run: bool
     layout: Layout
     version_source: str
+    available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
+    available_versions_updated_at: Optional[str] = None
 
 
 @dataclass
 class ExistingState:
     """Metadata inferred from a previously managed install, when present."""
 
-    metadata: Optional[Dict[str, Any]]
-    pinned_codex_version: Optional[str]
-    shared_home: Optional[bool]
+    metadata: Optional[Dict[str, Any]] = None
+    requested_codex_selector: Optional[str] = None
+    codex_channel: Optional[str] = None
+    pinned_codex_version: Optional[str] = None
+    available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
+    available_versions_updated_at: Optional[str] = None
+    shared_home: Optional[bool] = None
 
 
 @dataclass

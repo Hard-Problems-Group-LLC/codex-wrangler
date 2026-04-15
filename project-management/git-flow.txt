@@ -59,13 +59,13 @@ Run all required checks via the repository's hardened local quality gate:
     entropy_tripwire_verify`
   - `.venv/bin/python scripts/run_local_quality_gate.py pytest`
 - Standardized push path:
-  - `python TheKnowledge/scripts/git_standard_commit_push.py -m
-    "<subject>"`
+  - `python scripts/git_commit_with_changelog.py -m "<subject>"`
   This command blocks push unless the cached quality gate passes, including
-  entropy tripwire verification. When
-  `project-management/state/pending-commit-changes.txt` is nonblank, the
-  command uses it as commit body text and clears the file after a successful
-  local commit.
+  entropy tripwire verification. It first mirrors any notable queued changes
+  into `CHANGELOG.md`, then delegates to TheKnowledge's standard commit
+  helper. When `project-management/state/pending-commit-changes.txt` is
+  nonblank, the delegated helper still uses it as commit body text and clears
+  the file after a successful local commit.
 - Standardized pull path:
   - `python TheKnowledge/scripts/git_veteran_pull.py`
   This command enforces a guarded fast-forward pull workflow.

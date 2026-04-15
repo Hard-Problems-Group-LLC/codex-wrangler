@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 import os
-import shutil
 from typing import Any, Dict, List
 
 from .constants import (
@@ -16,6 +16,7 @@ from .constants import (
     SCRIPT_MARKER,
     SCRIPT_VERSION,
 )
+from .environment import collect_runtime_diagnostics
 from .filesystem import (
     ensure_managed_directories,
     maybe_remove_empty_parent,
@@ -32,7 +33,13 @@ from .layout import (
     read_json_file,
 )
 from .models import CodexWranglerError, Config, SelfTestResult
+from .releases import (
+    fetch_available_codex_versions,
+    resolve_install_version,
+    resolve_upgrade_version,
+)
 from .rendering import (
+    build_available_versions_table,
     build_gitignore_block,
     build_install_summary,
     build_known_versions,
@@ -51,32 +58,10 @@ from .runtime import (
 )
 
 
-def install_like_operation(config: Config) -> int:
-    """Shared implementation for install and upgrade-style operations."""
-
-    npm_name, npx_name = detect_npm_binaries()
-    ensure_command_exists(npm_name)
-    ensure_command_exists(npx_name)
-
-    eprint("[codex-wrangler] Target project root: {}".format(config.project_root))
-    eprint("[codex-wrangler] Operation: {}".format(config.operation))
-    eprint("[codex-wrangler] Codex version: {}".format(config.codex_version))
-    eprint("[codex-wrangler] Version source: {}".format(config.version_source))
-    eprint(
-        "[codex-wrangler] HOME isolation: {}".format(
-            "shared user HOME" if config.shared_home else "project-local isolated HOME"
-        )
-    )
+def write_managed_supporting_files(config: Config) -> None:
+    """Write the managed launcher, README, .gitignore block, and metadata."""
 
     ensure_managed_directories(config)
-
-    write_text_file(
-        config.layout.local_package_json_path,
-        build_local_package_json(config.codex_version),
-        force=config.force,
-        dry_run=config.dry_run,
-        managed_content_predicate=local_package_json_looks_managed,
-    )
     write_text_file(
         config.layout.launcher_path,
         build_launcher_content(config),
@@ -103,21 +88,110 @@ def install_like_operation(config: Config) -> int:
         dry_run=config.dry_run,
     )
 
-    if config.dry_run:
+
+def require_existing_managed_install(config: Config) -> None:
+    """Reject update-like operations when no managed install can be proven."""
+
+    metadata_exists = config.layout.metadata_path.exists()
+    package_json_exists = config.layout.local_package_json_path.exists()
+    if metadata_exists or package_json_exists:
+        return
+    raise CodexWranglerError(
+        "No managed Codex install was found under {}. Run `codex-wrangler .` "
+        "first, then rerun `codex-wrangler --update`.".format(config.project_root)
+    )
+
+
+def install_like_operation(config: Config) -> int:
+    """Shared implementation for install and upgrade-style operations."""
+
+    npm_name, npx_name = detect_npm_binaries()
+    ensure_command_exists("node")
+    ensure_command_exists(npm_name)
+    ensure_command_exists(npx_name)
+
+    if config.operation == "upgrade":
+        resolved_config = resolve_upgrade_version(config)
+    else:
+        resolved_config = resolve_install_version(config, npm_name)
+
+    eprint(
+        "[codex-wrangler] Target project root: {}".format(resolved_config.project_root)
+    )
+    eprint("[codex-wrangler] Operation: {}".format(resolved_config.operation))
+    eprint("[codex-wrangler] Codex selector: {}".format(resolved_config.codex_selector))
+    eprint("[codex-wrangler] Codex version: {}".format(resolved_config.codex_version))
+    eprint("[codex-wrangler] Version source: {}".format(resolved_config.version_source))
+    eprint(
+        "[codex-wrangler] HOME isolation: {}".format(
+            "shared user HOME"
+            if resolved_config.shared_home
+            else "project-local isolated HOME"
+        )
+    )
+
+    write_text_file(
+        resolved_config.layout.local_package_json_path,
+        build_local_package_json(resolved_config.codex_version),
+        force=resolved_config.force,
+        dry_run=resolved_config.dry_run,
+        managed_content_predicate=local_package_json_looks_managed,
+    )
+    write_managed_supporting_files(resolved_config)
+
+    if resolved_config.dry_run:
         eprint(
-            "[codex-wrangler] Would run: npm install --prefix {}".format(
-                config.layout.local_dir
+            "[codex-wrangler] Would run: {} install --prefix {}".format(
+                npm_name, resolved_config.layout.local_dir
             )
         )
-    elif config.skip_install:
+    elif resolved_config.skip_install:
         eprint("[codex-wrangler] Skipping npm install by request")
     else:
         run_command(
-            ["npm", "install", "--prefix", str(config.layout.local_dir)],
-            cwd=str(config.project_root),
+            [npm_name, "install", "--prefix", str(resolved_config.layout.local_dir)],
+            cwd=str(resolved_config.project_root),
         )
 
-    print(build_install_summary(config))
+    print(build_install_summary(resolved_config))
+    return 0
+
+
+def update_operation(config: Config) -> int:
+    """Refresh the locally known Codex channel versions without upgrading."""
+
+    require_existing_managed_install(config)
+
+    npm_name, npx_name = detect_npm_binaries()
+    ensure_command_exists("node")
+    ensure_command_exists(npm_name)
+    ensure_command_exists(npx_name)
+
+    available_versions = fetch_available_codex_versions(npm_name, config.project_root)
+    updated_config = replace(
+        config,
+        available_versions=available_versions,
+        available_versions_updated_at=utc_now_iso(),
+    )
+
+    eprint(
+        "[codex-wrangler] Target project root: {}".format(updated_config.project_root)
+    )
+    eprint("[codex-wrangler] Operation: update")
+    eprint("[codex-wrangler] Refreshing locally known stable/beta/alpha versions")
+
+    write_managed_supporting_files(updated_config)
+
+    print(
+        "NOTE: This command updates available version information, but does not "
+        'perform an upgrade; use "codex-wrangler --upgrade --channel '
+        '<stable|beta|alpha> [--version <latest|x.y.z>]" for that.'
+    )
+    print("")
+    print(build_available_versions_table(updated_config.available_versions))
+    if updated_config.available_versions_updated_at:
+        print("")
+        print("Updated at: {}".format(updated_config.available_versions_updated_at))
     return 0
 
 
@@ -146,6 +220,13 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
 
     npm_name, npx_name = detect_npm_binaries()
     metadata = read_json_file(config.layout.metadata_path)
+    runtime_environment = collect_runtime_diagnostics(
+        config.project_root,
+        config.shared_home,
+        config.layout.codex_home_dir,
+        npm_name,
+        npx_name,
+    )
 
     gitignore_text = (
         config.layout.gitignore_path.read_text(encoding="utf-8")
@@ -163,12 +244,18 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
         "generated_at": utc_now_iso(),
         "project_root": str(config.project_root),
         "operation": "inspect",
-        "known_versions": build_known_versions(),
+        "known_versions": build_known_versions(
+            config.available_versions,
+            config.available_versions_updated_at,
+        ),
         "requested_configuration": {
+            "codex_selector": config.codex_selector,
+            "codex_channel": config.codex_channel,
             "codex_version": config.codex_version,
             "shared_home": config.shared_home,
             "version_source": config.version_source,
         },
+        "runtime_environment": runtime_environment,
         "paths": {
             "local_dir": str(config.layout.local_dir),
             "codex_home_dir": str(config.layout.codex_home_dir),
@@ -187,6 +274,8 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
             "node_modules_exists": config.layout.local_node_modules_dir.exists(),
             "metadata_exists": metadata is not None,
             "metadata": metadata,
+            "available_versions": dict(config.available_versions),
+            "available_versions_updated_at": config.available_versions_updated_at,
             "codex_home_exists": config.layout.codex_home_dir.exists(),
             "launcher_exists": config.layout.launcher_path.exists(),
             "launcher_executable": (
@@ -209,8 +298,9 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
                     config.layout.local_package_lock_path
                 )
             ),
-            "npm_found": shutil.which(npm_name) is not None,
-            "npx_found": shutil.which(npx_name) is not None,
+            "node_found": runtime_environment["resolved_commands"]["node"]["found"],
+            "npm_found": runtime_environment["resolved_commands"]["npm"]["found"],
+            "npx_found": runtime_environment["resolved_commands"]["npx"]["found"],
         },
         "warnings": [],
         "issues": [],
@@ -236,8 +326,21 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
         )
     if not state["gitignore_managed_block_present"]:
         warnings.append("Managed .gitignore block is not present.")
-    if not state["npm_found"] or not state["npx_found"]:
-        issues.append("Required npm/npx commands are not available in PATH.")
+    package_manager = runtime_environment["package_manager_declaration"]
+    if package_manager and package_manager.get("read_error"):
+        warnings.append(
+            "Target project package.json could not be parsed for packageManager: {}".format(
+                package_manager["read_error"]
+            )
+        )
+    selector_alignment = runtime_environment["selector_alignment"]
+    if (
+        selector_alignment["status"] in ("mismatch", "unknown")
+        and selector_alignment["signals_present"]
+    ):
+        warnings.append(selector_alignment["summary"])
+    if not state["node_found"] or not state["npm_found"] or not state["npx_found"]:
+        issues.append("Required node/npm/npx commands are not available in PATH.")
     if metadata and metadata.get("project_root") != str(config.project_root):
         issues.append(
             "Managed metadata project_root does not match the inspected project root."
@@ -314,7 +417,6 @@ def selftest_operation(config: Config) -> int:
     """Run a pessimistic verification suite against the managed install."""
 
     npm_name, _ = detect_npm_binaries()
-    ensure_command_exists(npm_name)
 
     report = gather_inspection_report(config)
     results: List[SelfTestResult] = []
@@ -323,6 +425,8 @@ def selftest_operation(config: Config) -> int:
         results.append(SelfTestResult(name=name, ok=ok, detail=detail))
 
     state = report["state"]
+    runtime_environment = report["runtime_environment"]
+    resolved_commands = runtime_environment["resolved_commands"]
     record(
         "metadata_exists", bool(state["metadata_exists"]), "managed metadata missing"
     )
@@ -345,6 +449,27 @@ def selftest_operation(config: Config) -> int:
         "installed_codex_version_present",
         bool(state["installed_codex_version_in_lockfile"]),
         "installed Codex version could not be inferred from package-lock.json",
+    )
+    record(
+        "node_command_found",
+        bool(state["node_found"]),
+        "node command is not available in PATH",
+    )
+    record(
+        "npm_command_found",
+        bool(state["npm_found"]),
+        "npm command is not available in PATH",
+    )
+    record(
+        "npx_command_found",
+        bool(state["npx_found"]),
+        "npx command is not available in PATH",
+    )
+    selector_alignment = runtime_environment["selector_alignment"]
+    record(
+        "runtime_selector_alignment",
+        selector_alignment["status"] != "mismatch",
+        selector_alignment["summary"],
     )
 
     if state["launcher_exists"] and state["launcher_matches_expected"]:
@@ -386,23 +511,30 @@ def selftest_operation(config: Config) -> int:
             "launcher verification commands were skipped because the launcher is not trustworthy",
         )
 
-    try:
-        audit_result = run_command(
-            [npm_name, "audit", "--prefix", str(config.layout.local_dir), "--json"],
-            cwd=str(config.project_root),
-            capture_output=True,
-        )
-    except CodexWranglerError as exc:
-        record("npm_audit_clean", False, str(exc))
+    if resolved_commands["npm"]["found"]:
+        try:
+            audit_result = run_command(
+                [npm_name, "audit", "--prefix", str(config.layout.local_dir), "--json"],
+                cwd=str(config.project_root),
+                capture_output=True,
+            )
+        except CodexWranglerError as exc:
+            record("npm_audit_clean", False, str(exc))
+        else:
+            audit_payload = json.loads(audit_result.stdout)
+            vulnerabilities = audit_payload.get("metadata", {}).get(
+                "vulnerabilities", {}
+            )
+            total_vulnerabilities = vulnerabilities.get("total")
+            record(
+                "npm_audit_clean",
+                total_vulnerabilities == 0,
+                "npm audit reported {} total vulnerabilities".format(
+                    total_vulnerabilities
+                ),
+            )
     else:
-        audit_payload = json.loads(audit_result.stdout)
-        vulnerabilities = audit_payload.get("metadata", {}).get("vulnerabilities", {})
-        total_vulnerabilities = vulnerabilities.get("total")
-        record(
-            "npm_audit_clean",
-            total_vulnerabilities == 0,
-            "npm audit reported {} total vulnerabilities".format(total_vulnerabilities),
-        )
+        record("npm_audit_clean", False, "npm command is not available in PATH")
 
     failures = [result for result in results if not result.ok]
     for result in results:

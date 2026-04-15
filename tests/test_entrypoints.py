@@ -30,6 +30,9 @@ def test_repo_wrapper_runs_from_checkout():
     )
     assert completed.returncode == 0
     assert "codex-wrangler" in completed.stdout
+    assert "--update" in completed.stdout
+    assert "--channel {stable,beta,alpha}" in completed.stdout
+    assert "--version REQUESTED_VERSION" in completed.stdout
 
 
 def test_install_stage_2_help_runs_from_checkout():
@@ -46,6 +49,8 @@ def test_install_stage_2_help_runs_from_checkout():
     assert "user-local non-development install" in completed.stdout
     assert "--mode {standard,dev,venv-only}" in completed.stdout
     assert "--system" in completed.stdout
+    assert "--user-home USER_HOME" in completed.stdout
+    assert "--allow-isolated-home" in completed.stdout
     assert "--force-direct-run" in completed.stdout
 
 

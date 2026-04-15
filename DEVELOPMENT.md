@@ -8,6 +8,14 @@
   Argument parsing and runtime configuration selection.
 - `src/codex_wrangler/layout.py`
   Path validation and existing-state discovery.
+- `src/codex_wrangler/environment.py`
+  Runtime-resolution diagnostics, selector detection, and launcher environment
+  reporting.
+- `src/codex_wrangler/changelog.py`
+  Keep a Changelog style parsing and queue-to-changelog sync helpers.
+- `src/codex_wrangler/install_scope.py`
+  Explicit user-home targeting helpers for installer trust boundaries and
+  user-scoped path selection.
 - `src/codex_wrangler/rendering.py`
   Deterministic managed file content and summary rendering.
 - `src/codex_wrangler/filesystem.py`
@@ -33,6 +41,9 @@
   Thin repository-root wrapper for direct execution from the checkout.
 - `scripts/install_user_tool.py`
   Repository-root helper that installs the user command into a dedicated venv.
+- `scripts/git_commit_with_changelog.py`
+  Repo-local wrapper that syncs `CHANGELOG.md` from the pending-commit queue
+  before delegating to TheKnowledge's standard commit helper.
 - `scripts/install_project.py`
   Repository-root install hook that keeps developer installs bound to this
   checkout through a managed launcher in `~/.local/bin`.
@@ -47,7 +58,7 @@
   Compatibility wrappers that delegate to the managed install entry points.
 - `tests/`
   Focused tests split by config, rendering, filesystem, operations, metadata,
-  bootstrap and installer behavior, and entry points.
+  bootstrap and installer behavior, entry points, and runtime detection.
 
 ## Developer Bootstrap
 
@@ -64,6 +75,13 @@ is available, initializes `TheKnowledge`, installs a pyenv-managed Python
 
 After the script finishes, open a new shell in this repository so the managed
 `direnv` hook can activate `.venv`.
+
+When the current shell is a repo-local `codex-local` session with `HOME`
+redirected into `.codex-home`, development bootstrap no longer guesses which
+user scope to mutate. In that situation, pass `--user-home /real/home` to
+target an operator home explicitly, or `--allow-isolated-home` when you
+deliberately want the bootstrap's user-scoped side effects to land in the
+isolated AI home.
 
 Run `./install.sh --help` when you need the current pass-through option list
 from `scripts/install-stage-2.py`. Direct stage-2 execution is guarded and is
@@ -106,6 +124,11 @@ When the managed pyenv runtime declared in `python-environments.json` already
 exists, the user installer prefers that shared interpreter for the dedicated
 user venv. That keeps the packages isolated while reusing a sensible
 user-scoped runtime family instead of creating an extra interpreter tree.
+
+As with `./install.sh`, this helper now treats an isolated repo-local
+`.codex-home` as a distinct user scope. Use `--user-home /path/to/home` when
+you intend to target some other user, and `--allow-isolated-home` only when
+an AI-local install into that isolated home is deliberate.
 
 If you specifically want to test raw `pip --user` behavior on a distribution
 that allows it, the older direct commands still work:

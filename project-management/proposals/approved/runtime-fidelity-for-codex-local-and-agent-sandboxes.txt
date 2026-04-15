@@ -1,0 +1,298 @@
+Engineering Change Request: Runtime Fidelity for codex-local and Agent Sandboxes
+================================================================================
+
+Title: Engineering Change Request: Runtime Fidelity for codex-local and Agent
+Sandboxes
+Author: Codex
+Date: 2026-04-14T14:18:32-07:00
+Status: Approved
+Reviewers: operator (repository maintainer), AI maintainers
+Related Work: Direct operator request on 2026-04-14;
+`README.md` runtime-boundary note; TheKnowledge interpreter-precedence policy;
+TheKnowledge bubblewrap sandboxing guidance; `docs/specifications/`
+`runtime_fidelity_and_startup_preflight.txt`
+
+Problem Statement
+-----------------
+Resulting projects are expected to own their full development environments:
+project-local Python interpreter and packages, project-local Node.js toolchain
+and packages, automatic activation through `direnv` or equivalent, and
+submodules such as `TheKnowledge` behaving as part of the parent project's
+tooling surface. At the same time, `codex-wrangler` is meant to stay narrow
+and avoid mutating those broader project-level runtime controls.
+
+Current `codex-wrangler` behavior only partially satisfies that boundary. It
+localizes the `@openai/codex` package install in `.codex-local/` and, by
+default, localizes Codex state in `.codex-home/`, but the generated launcher
+still resolves `node`, `npm`, and `npx` from whatever `PATH` is active when
+`bin/codex-local` starts. That can let a human run the same repository under
+one Node.js family while Codex, and the agent sandboxes Codex creates, run
+under another.
+
+The practical risk is not only version skew. Agent sandboxes built through
+Bubblewrap or similar wrappers inherit the parent process view that the
+launcher and outer shell provide. If that parent view does not match the
+human developer shell, the sandbox will faithfully preserve the mismatch.
+
+Best-Practice Assessment
+------------------------
+The intended resulting-project model is broadly aligned with modern
+development best practices:
+
+- project-local development environments for reproducibility;
+- automatic directory-entry activation through `direnv` or equivalent;
+- user-local install by default and system-local install only with explicit
+  privilege escalation;
+- narrow tool ownership so helper utilities do not rewrite the project's own
+  language-runtime controls; and
+- submodules using the parent project's toolchain view rather than becoming
+  separate ad hoc environments.
+
+The current tension is between determinism and isolation:
+
+- isolating Codex state under `.codex-home/` is good security hygiene and
+  reduces cross-project bleed, but it can diverge from a human shell because
+  `HOME` and `XDG_*` change;
+- relying on ambient `PATH` for `node`, `npm`, and `npx` is convenient, but
+  it is weaker than current reproducibility standards when a project expects a
+  checked-in local Node.js selector; and
+- Bubblewrap sandboxes preserve the parent process view. They do not repair a
+  mismatch between human and agent environments after the fact.
+
+Goals
+-----
+- Keep `codex-wrangler` narrow and non-conflicting with resulting-project
+  bootstrap systems.
+- Bring Codex launcher behavior closer to modern reproducibility expectations.
+- Improve human-versus-agent runtime parity without requiring
+  `codex-wrangler` to own a full Node.js bootstrap system.
+- Preserve the security value of project-local Codex state unless a reviewed
+  exception is necessary.
+- Keep submodules under the parent project's local toolchains rather than
+  treating them as isolated environments.
+
+Non-Goals
+---------
+- Immediately implement a new Node.js bootstrap system in `codex-wrangler`.
+- Make `codex-wrangler` rewrite target-project files such as `.nvmrc`,
+  `.node-version`, `.tool-versions`, `package.json`, `pyproject.toml`, or
+  `.envrc`.
+- Replace the target project's own responsibility for selecting Python,
+  Node.js, package-manager, or shell-activation tooling.
+- Remove `.codex-home` isolation by default before diagnostics and review.
+
+Use Cases
+---------
+1. A developer enters a project through its normal `direnv` flow and launches
+   `bin/codex-local`. Codex and its agent sandboxes should see the same
+   interpreter family that the developer shell sees.
+2. A developer launches `bin/codex-local` from a shell that did not activate
+   the project's runtime selectors. The tool should surface that mismatch
+   clearly instead of silently relying on an ambient system default when
+   stronger project-local expectations exist.
+3. A project includes `TheKnowledge` or another submodule. Commands run inside
+   the submodule during project work should use the parent project's local
+   interpreters and packages as if the submodule were part of the same tree.
+4. An operator installs `codex-wrangler` for normal use without `sudo`. The
+   user-facing command should still land in user scope and should not mutate
+   system runtime state.
+5. An operator explicitly installs with `sudo`. The user-facing command may
+   land in system-local locations such as `/usr/local/bin`, but resulting
+   projects should still remain responsible for their own development
+   environments.
+
+Constraints and Assumptions
+---------------------------
+- `codex-wrangler` should continue to own only its namespaced artifacts:
+  `.codex-local/`, `.codex-home/`, `bin/codex-local`,
+  `README-LOCAL-Start-Codex.md`, and its marked `.gitignore` block.
+- Resulting projects may use `pyenv`, `pyenv-virtualenv`, `direnv`, `nvm`,
+  `fnm`, `asdf`, `volta`, `corepack`, or equivalent tooling.
+- Bubblewrap and similar agent sandboxes only preserve the environment and
+  filesystem view the parent process exposes.
+- `codex-wrangler` currently overrides `HOME` and related `XDG_*` paths unless
+  `--shared-home` is selected; that behavior is useful for Codex-state
+  isolation but can affect parity with a normal human shell.
+- The preferred fix should detect and respect project-local runtime selectors
+  rather than inventing a second Node.js-management stack.
+
+Recommended Changes
+-------------------
+Recommend the following changes in priority order:
+
+1. Formalize the contract.
+   Document that `codex-wrangler` localizes Codex packages and Codex state,
+   but does not own the target project's Python or Node.js bootstrap. State
+   that resulting projects remain responsible for checked-in selectors,
+   `direnv`, and submodule toolchain inheritance.
+2. Add runtime diagnostics.
+   Extend inspect and self-test output so operators can see:
+   - resolved `node`, `npm`, and `npx` paths;
+   - detected Node.js selector files such as `.nvmrc`, `.node-version`, and
+     `.tool-versions`;
+   - whether `package.json` declares a package-manager family and version;
+   - effective `HOME` mode and the specific `XDG_*` paths the launcher will
+     expose.
+3. Add selector-aware launcher preflight.
+   When `codex-wrangler` detects a checked-in Node.js selector or equivalent
+   project-local signal, add a launcher or preflight mode that warns, and
+   eventually may fail, if the active shell has not activated that project
+   runtime. Prefer fail-fast detection over silently falling back to ambient
+   system `PATH`.
+4. Keep `.codex-home` isolation as the default for now, but tighten
+   observability around it.
+   Make the launcher and inspection output explicit about `HOME` rewriting so
+   operators can reason about config lookup, auth, and subtool behavior.
+   Defer any change to default `HOME` behavior until diagnostics and smoke
+   coverage exist.
+5. Add parity smoke checks.
+   Add repeatable checks that compare a normal project shell with a
+   `bin/codex-local`-launched Codex session to verify resolved runtimes,
+   `HOME`, and submodule behavior. Treat this as a regression guard for human
+   versus agent sandbox parity.
+
+Proposed Approach
+-----------------
+Keep the narrow-ownership design. Do not make `codex-wrangler` a second
+project bootstrap system. Instead, make it better at detecting when the outer
+shell has not activated the runtime that the project itself expects.
+
+The recommended implementation sequence is:
+
+1. Documentation and reporting first.
+   This is the lowest-risk change. It improves operator awareness and aligns
+   with the TheKnowledge rule that environment resolution should be explicit,
+   deterministic, and documented.
+2. Warning-level selector enforcement next.
+   Once `codex-wrangler` can detect selector files and show the resolved Node
+   toolchain, add warnings when the active shell appears inconsistent with the
+   project's declared runtime.
+3. Opt-in strict mode after that.
+   Add an explicit strict mode that refuses to launch Codex when the project
+   declares a local runtime and the shell has not activated it. This should be
+   reviewed before becoming any sort of default.
+4. `HOME`-behavior review last.
+   Keep `.codex-home` isolation while gathering evidence. If real-world usage
+   shows that `HOME` rewriting causes more parity problems than it solves,
+   revisit narrower pass-through rules or a reviewed mode change.
+
+Risks and Mitigations
+---------------------
+- Risk: stricter runtime checks make empty-repository bootstrap less
+  convenient.
+  Mitigation: begin with diagnostics, then warnings, and only later consider
+  fail-fast behavior when a project clearly declares a local runtime.
+- Risk: `codex-wrangler` starts to conflict with the target project's own
+  bootstrap system.
+  Mitigation: prefer inspection, fail-fast policy, and selector awareness over
+  managing a second Node.js runtime tree.
+- Risk: the `HOME` override still surprises tools that read global config.
+  Mitigation: expose that state plainly in docs and inspection output before
+  narrowing or changing the behavior.
+- Risk: relying on selector-file detection misses some project-specific
+  conventions.
+  Mitigation: begin with the common checked-in selector files and package
+  manager declarations, then expand only as reviewed evidence warrants.
+
+Testing and Validation
+----------------------
+- Add unit coverage for any new inspection or self-test fields that report
+  resolved runtime paths, detected selectors, package-manager declarations,
+  and `HOME` mode.
+- Add smoke checks that simulate both an activated project shell and an
+  ambient system shell, then compare the resolved `node`, `npm`, and `npx`
+  executables seen by `bin/codex-local`.
+- Validate at least one parent-project-plus-submodule scenario to confirm
+  submodule commands inherit the parent project's runtime selection.
+- Validate that user-local and system-local installs still publish launchers
+  in the appropriate scope without mutating project runtime selectors.
+
+Alternatives Considered
+-----------------------
+1. Leave the current ambient-`PATH` behavior undocumented.
+   Rejected because it hides the real source of human-versus-agent drift.
+2. Have `codex-wrangler` install and own a complete Node.js toolchain for each
+   target repository.
+   Rejected for now because it conflicts with the stated goal that resulting
+   projects own their full runtime selection.
+3. Drop `.codex-home` isolation to make `HOME` look more like a human shell.
+   Rejected for now because isolated Codex state is still a core safety and
+   hygiene feature.
+4. Require strict runtime enforcement immediately.
+   Rejected because the project first needs visibility into real-world
+   selector usage and launcher behavior.
+
+Open Questions
+--------------
+1. Should a future strict mode become the default only when a checked-in
+   Node.js selector such as `.nvmrc`, `.node-version`, or `.tool-versions`
+   exists?
+   Owner: operator and AI maintainers.
+   Target date: 2026-04-21.
+2. Which selector files and package-manager signals should `codex-wrangler`
+   treat as authoritative for "project-local Node.js is expected here"?
+   Owner: operator and AI maintainers.
+   Target date: 2026-04-21.
+3. How much of the current `HOME` override should remain default once runtime
+   diagnostics and parity smoke checks exist?
+   Owner: operator and AI maintainers.
+   Target date: 2026-04-21.
+
+Milestones
+----------
+1. Record the current model and recommended policy.
+   Target date: 2026-04-14.
+   Owners: AI maintainers.
+   Dependencies: direct operator request.
+   Entry criteria: discussion reached a clear statement of the conflict.
+   Exit criteria: docs and this proposal capture the current state and the
+   recommended change sequence accurately.
+2. Add runtime diagnostics to inspect and self-test paths.
+   Target date: 2026-04-21.
+   Owners: AI maintainers.
+   Dependencies: milestone 1 review.
+   Entry criteria: proposal direction accepted or refined.
+   Exit criteria: operators can see resolved runtime paths, selector signals,
+   package-manager declarations, and `HOME` mode in supported reports.
+3. Add selector-aware warning and opt-in strict modes.
+   Target date: 2026-04-28.
+   Owners: operator, AI maintainers.
+   Dependencies: milestone 2 and open-question resolution.
+   Entry criteria: runtime diagnostics are in place.
+   Exit criteria: launcher behavior is deterministic and documented for the
+   approved policy.
+4. Add parity smoke coverage across normal shells and Codex-launched sessions.
+   Target date: 2026-05-05.
+   Owners: AI maintainers.
+   Dependencies: milestones 2 and 3.
+   Entry criteria: selector-aware behavior exists.
+   Exit criteria: regression coverage exists for human-versus-agent runtime
+   parity, including at least one submodule scenario.
+
+Adoption and Rollout
+--------------------
+Use this approved rollout order:
+
+1. Land documentation and an explicit specification.
+2. Land inspect and self-test diagnostics.
+3. Land warning-level launcher preflight plus an opt-in strict mode.
+4. Revisit any stronger default enforcement only after real-world usage data
+   and parity smoke coverage exist.
+
+The current implementation covers steps 1 through 3. Future work should avoid
+any change that would silently take over the target project's Node.js
+bootstrap or submodule-environment policy.
+
+Decision Log
+------------
+- 2026-04-14T14:12:22-07:00 - Initial draft recorded the current launcher
+  limitation and the concern about human-versus-agent runtime parity inside
+  Codex sandboxes.
+- 2026-04-14T14:18:32-07:00 - Revised the draft into a recommendation-led
+  proposal after explicitly comparing the intended model with modern
+  development and security best practices.
+- 2026-04-14T14:26:03-07:00 - Approved by the operator through the request to
+  document the discussion and implement the recommended changes.
+- 2026-04-14T14:41:09-07:00 - Updated the rollout section after the approved
+  first implementation slice landed locally with diagnostics, warning-level
+  preflight, and an opt-in strict mode.
