@@ -27,6 +27,21 @@ the managed TheKnowledge footer.
 - Prefer `python scripts/git_commit_with_changelog.py -m "<subject>"` over a
   direct call to the TheKnowledge commit helper so the changelog sync happens
   before the pending-commit queue is truncated.
+- Prefer targeted patch-style edits for small localized changes. For whole-file
+  creation, large documentation records, mechanical multi-file updates,
+  generated content, or environments where the patch helper is unavailable or
+  failing, use an explicit non-destructive local edit command or short script
+  against named files, then inspect `git diff` and run the appropriate
+  validation. If a tool or approach proves generally unreliable in this
+  repository, either open a bug and surface the issue to the operator, or
+  lower that tool or approach in the strategy set for future work. Treat
+  repo-local tool reliability as remembered context so agents do not keep
+  rediscovering the same failure.
+- Known local tool reliability record: `apply_patch` has failed in this
+  checkout with `bwrap: loopback: Failed RTM_NEWADDR: Operation not
+  permitted`. Try targeted patch-style edits when appropriate, but after
+  one such failure in a session, demote that tool and use an explicit
+  non-destructive named-file edit fallback instead of retrying it.
 
 <!-- THEKNOWLEDGE_MANAGED_FOOTER_START -->
 ---

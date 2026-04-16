@@ -10,6 +10,11 @@ and this repository aims to follow
 
 ### Added
 
+- Added a low-priority meta bug record for the intentionally empty
+  condition of having no new bugs to add.
+- Added a local pragmatic edit-method policy and a TheKnowledge ECR to
+  replace rigid patch-helper requirements with safety-oriented edit
+  guidance.
 - Added this top-level changelog and a repo-local commit helper that preserves
   pending commit summaries in it before the queue is cleared by the standard
   commit workflow.
