@@ -3,3 +3,10 @@ Known Bugs
 Ordered list of confirmed bugs awaiting work. Put highest-priority bug at the
 top. Use asterisk-plus-blank-line format, include concise context, owners, and
 ISO 8601 timestamps. Store any expanded per-bug notes under `open/`.
+
+* Opened `2026-04-08T16:13:00-07:00`. `codex-wrangler` reports stale
+  `latest known` stable and alpha versions because the values are hardcoded in
+  source. On `2026-04-08`, `--inspect` still reported stable `0.116.0` and
+  alpha `0.117.0-alpha.19` even though npm `dist-tags` had stable `0.118.0`
+  and alpha `0.119.0-alpha.23`. Details:
+  `open/stale-known-codex-version-tags.txt`

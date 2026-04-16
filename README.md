@@ -22,6 +22,9 @@ The utility also supports:
 - version-catalog refresh with `--update`
 - channel-aware upgrades with `--upgrade`
 - exact-version targeting with `--version latest|x.y.z`
+- managed reasonable-permissions launcher defaults with
+  `--set-reasonable-permissions` and
+  `--clear-reasonable-permissions`
 
 ## Changelog
 
@@ -250,6 +253,13 @@ Upgrade to one exact version:
 
 ```bash
 codex-wrangler --upgrade --channel beta --version 0.31.0-beta.2 .
+```
+
+Enable or clear the managed reasonable-permissions launcher default:
+
+```bash
+codex-wrangler --set-reasonable-permissions .
+codex-wrangler --clear-reasonable-permissions .
 ```
 
 Uninstall the managed setup:

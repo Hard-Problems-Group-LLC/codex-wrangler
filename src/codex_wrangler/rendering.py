@@ -48,6 +48,7 @@ def build_metadata(config: Config) -> Dict[str, Any]:
         "codex_channel": config.codex_channel,
         "codex_version": config.codex_version,
         "shared_home": config.shared_home,
+        "reasonable_permissions_enabled": config.reasonable_permissions_enabled,
         "version_source": config.version_source,
         "available_versions": dict(config.available_versions),
         "available_versions_updated_at": config.available_versions_updated_at,
@@ -65,8 +66,11 @@ def build_gitignore_block(layout: Layout) -> str:
 
     lines = [
         GITIGNORE_BEGIN,
+        "# Local Codex package, home, wrapper, and sentinel artifacts.",
         "{}/".format(layout.local_dir_relative.rstrip("/")),
         "{}/".format(layout.codex_home_relative.rstrip("/")),
+        ".codex",
+        layout.launcher_relative,
         layout.readme_relative,
         GITIGNORE_END,
         "",
@@ -257,6 +261,36 @@ def build_launcher_update_notice_lines(layout: Layout) -> list[str]:
     ]
 
 
+def build_launcher_reasonable_permissions_lines(config: Config) -> list[str]:
+    """Return the shell block that injects managed approval defaults."""
+
+    state_value = "1" if config.reasonable_permissions_enabled else "0"
+    return [
+        'reasonable_permissions_enabled="{}"'.format(state_value),
+        "default_codex_args=()",
+        "",
+        'if [[ "$reasonable_permissions_enabled" == "1" ]]; then',
+        "  explicit_permission_choice=0",
+        '  for arg in "$@"; do',
+        '    case "$arg" in',
+        "      -a|--ask-for-approval|-s|--sandbox|--full-auto|--dangerously-bypass-approvals-and-sandbox)",
+        "        explicit_permission_choice=1",
+        "        ;;",
+        "      --ask-for-approval=*|--sandbox=*)",
+        "        explicit_permission_choice=1",
+        "        ;;",
+        "    esac",
+        '    if [[ "$explicit_permission_choice" == "1" ]]; then',
+        "      break",
+        "    fi",
+        "  done",
+        '  if [[ "$explicit_permission_choice" == "0" ]]; then',
+        '    default_codex_args+=("-a" "never" "-s" "workspace-write")',
+        "  fi",
+        "fi",
+    ]
+
+
 def build_launcher_content(config: Config) -> str:
     """Build the generated shell launcher."""
 
@@ -302,7 +336,16 @@ def build_launcher_content(config: Config) -> str:
     lines.extend(build_launcher_preflight_lines())
     lines.extend([""])
     lines.extend(build_launcher_update_notice_lines(config.layout))
-    lines.extend(["", 'exec npx --prefix "$local_prefix" codex "$@"', ""])
+    lines.extend([""])
+    lines.extend(build_launcher_reasonable_permissions_lines(config))
+    lines.extend(
+        [
+            "",
+            'exec npx --prefix "$local_prefix" codex '
+            '"${default_codex_args[@]}" "$@"',
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -334,6 +377,9 @@ def build_local_readme_content(config: Config) -> str:
         "- HOME mode: `{}`".format(
             "shared user HOME" if config.shared_home else "project-local isolated HOME"
         ),
+        "- Reasonable permissions default: `{}`".format(
+            "enabled" if config.reasonable_permissions_enabled else "disabled"
+        ),
         "- Known stable version: `{}`".format(
             config.available_versions.get("stable") or "unavailable"
         ),
@@ -349,6 +395,21 @@ def build_local_readme_content(config: Config) -> str:
         "```bash",
         "./{}".format(config.layout.launcher_relative),
         "```",
+        "",
+        "## Managed Approval Default",
+        "",
+        "The launcher can store one opt-in reasonable-permissions default.",
+        "Current state: `{}`.".format(
+            "enabled" if config.reasonable_permissions_enabled else "disabled"
+        ),
+        "",
+        "When enabled, the wrapper adds `-a never` and `-s workspace-write`",
+        "only when you did not already provide an explicit approval or sandbox",
+        "choice.",
+        "",
+        "Explicit `-a`, `--ask-for-approval`, `-s`, `--sandbox`,",
+        "`--full-auto`, and",
+        "`--dangerously-bypass-approvals-and-sandbox` always win.",
         "",
         "## Launcher Preflight",
         "",
@@ -407,6 +468,13 @@ def build_local_readme_content(config: Config) -> str:
         "{} --upgrade --channel beta --version 0.31.0-beta.2 .".format(SCRIPT_NAME),
         "```",
         "",
+        "## Toggle Managed Approval Defaults",
+        "",
+        "```bash",
+        "{} --set-reasonable-permissions .".format(SCRIPT_NAME),
+        "{} --clear-reasonable-permissions .".format(SCRIPT_NAME),
+        "```",
+        "",
         "## Uninstall Managed Setup",
         "",
         "```bash",
@@ -455,8 +523,16 @@ def build_install_summary(config: Config) -> str:
         "Metadata file: {}".format(config.layout.metadata_path),
         "Launcher: {}".format(config.layout.launcher_path),
         "Local README: {}".format(config.layout.readme_path),
+        "Reasonable permissions default: {}".format(
+            "enabled" if config.reasonable_permissions_enabled else "disabled"
+        ),
         "HOME mode: {}".format(
             "shared user HOME" if config.shared_home else "project-local isolated HOME"
+        ),
+        "Package install: {}".format(
+            "unchanged existing managed install"
+            if config.reconfigure_only
+            else "skipped by request" if config.skip_install else "npm install required"
         ),
         "",
         "Recommended usage:",

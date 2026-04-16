@@ -41,6 +41,8 @@ def config_factory():
             "dry_run": False,
             "layout": layout,
             "version_source": "test",
+            "reasonable_permissions_enabled": False,
+            "reconfigure_only": False,
         }
         defaults.update(overrides)
         return Config(**defaults)

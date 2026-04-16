@@ -5,6 +5,55 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-04-15T15:14:36-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: implemented the approved reasonable-permissions launcher-state
+  proposal. Added
+  `docs/specifications/reasonable_permissions_for_codex_local_launchers.txt`,
+  `--set-reasonable-permissions`, `--clear-reasonable-permissions`, persisted
+  `reasonable_permissions_enabled` metadata, inspect output, generated local
+  README visibility, and launcher logic that adds
+  `-a never -s workspace-write` only when callers did not already choose
+  approval or sandbox behavior. Toggle-only set and clear calls against an
+  existing managed install now preserve the current package selection and
+  rewrite managed files without invoking npm package resolution or install.
+  Added automatic managed `.gitignore` enforcement for `.codex` and
+  `bin/codex-local`, refreshed README usage docs, and removed
+  `bin/codex-local` from local Git history so the generated launcher no
+  longer remains tracked.
+  Validation: `bash -n bin/codex-local` passed. `PYTHONPATH=src
+  .venv/bin/python -m pytest -q tests/test_config.py tests/test_rendering.py
+  tests/test_operations.py` passed with `38` tests green before and after
+  Black. Black passed through `scripts/run_tool_with_timeout.py black` after
+  setting `THEKNOWLEDGE_BLACK_PYTHON` to `.venv/bin/python` for the wrapper
+  child-process runtime. Ruff, `compileall`, `entropy_check`,
+  `entropy_tripwire_verify`, and full `pytest` passed through
+  `scripts/run_tool_with_timeout.py` with `THEKNOWLEDGE_PYTHON_TOOLS` pointed
+  at `.venv/bin/python`; full pytest reported `123` tests green. A dry-run
+  smoke check of `--set-reasonable-permissions` confirmed the existing-install
+  reconfiguration path skipped npm package operations.
+
+*
+  Completed: 2026-04-15T14:48:15-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: translated the NiceBeach reasonable-permissions ECR into a native
+  approved `codex-wrangler` proposal under
+  `project-management/proposals/approved/`. The proposal keeps the feature
+  narrowly scoped to one managed boolean state, launcher default injection of
+  `-a never -s workspace-write` only when callers did not already choose
+  approval or sandbox behavior, inspect and README visibility, and clean
+  regeneration when the state is cleared. It also records a critical
+  implementation guardrail: toggling the state must behave as a
+  reconfiguration pass that preserves the current package selection instead of
+  silently turning into a latest-stable reinstall.
+  Validation: manual review confirmed the proposal matches the NiceBeach ECR,
+  the current `codex-wrangler` metadata and launcher architecture, and the
+  current install-path behavior that would otherwise risk package drift on a
+  bare toggle command.
+
+*
   Completed: 2026-04-15T14:17:07-07:00.
   Owner: Codex.
   Requestor: operator.

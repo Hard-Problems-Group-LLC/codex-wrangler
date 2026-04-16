@@ -8,6 +8,7 @@ from typing import Optional, Sequence
 from .config import config_from_args, parse_args
 from .models import CodexWranglerError
 from .operations import (
+    ensure_gitignore_block,
     inspect_operation,
     install_like_operation,
     selftest_operation,
@@ -24,6 +25,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     config = config_from_args(args)
 
     try:
+        if config.operation != "uninstall":
+            ensure_gitignore_block(config)
         if config.operation == "inspect":
             return inspect_operation(config)
         if config.operation == "selftest":

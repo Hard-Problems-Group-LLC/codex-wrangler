@@ -25,6 +25,8 @@ class DummyArgs:
     requested_version = None
     channel = None
     shared_home = None
+    set_reasonable_permissions = False
+    clear_reasonable_permissions = False
 
 
 def test_normalize_requested_version_accepts_case_insensitive_latest():
@@ -96,6 +98,11 @@ def test_parse_args_rejects_update_version_request():
         parse_args(["--update", "--version", "latest"])
 
 
+def test_parse_args_rejects_set_reasonable_permissions_with_inspect():
+    with pytest.raises(SystemExit):
+        parse_args(["--inspect", "--set-reasonable-permissions"])
+
+
 def test_parse_args_rejects_mismatched_upgrade_channel_and_version():
     with pytest.raises(SystemExit):
         parse_args(["--upgrade", "--channel", "stable", "--version", "0.31.0-beta.2"])
@@ -150,3 +157,42 @@ def test_config_from_args_update_falls_back_to_existing_managed_files(tmp_path):
     assert config.codex_channel == "beta"
     assert config.codex_version == "0.31.0-beta.2"
     assert config.version_source == "existing managed files"
+
+
+def test_config_from_args_toggle_only_preserves_existing_selection(tmp_path):
+    local_dir = tmp_path / ".codex-local"
+    local_dir.mkdir()
+    (local_dir / "package.json").write_text(
+        build_local_package_json("0.31.0-beta.2"),
+        encoding="utf-8",
+    )
+    (local_dir / "package-lock.json").write_text(
+        '{"packages": {"node_modules/@openai/codex": {"version": "0.31.0-beta.2"}}}',
+        encoding="utf-8",
+    )
+    (local_dir / ".codex-wrangler.json").write_text(
+        (
+            "{"
+            '"project_root": "%s", '
+            '"codex_selector": "latest", '
+            '"codex_channel": "beta", '
+            '"codex_version": "0.31.0-beta.2", '
+            '"version_source": "existing metadata", '
+            '"reasonable_permissions_enabled": false'
+            "}"
+        )
+        % tmp_path,
+        encoding="utf-8",
+    )
+
+    config = config_from_args(
+        parse_args(["--set-reasonable-permissions", str(tmp_path)])
+    )
+
+    assert config.operation == "install"
+    assert config.codex_selector == "latest"
+    assert config.codex_channel == "beta"
+    assert config.codex_version == "0.31.0-beta.2"
+    assert config.version_source == "existing metadata"
+    assert config.reasonable_permissions_enabled is True
+    assert config.reconfigure_only is True

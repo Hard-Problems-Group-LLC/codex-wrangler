@@ -119,6 +119,7 @@ def read_existing_state(layout: Layout) -> ExistingState:
     pinned_codex_version = None
     available_versions: Dict[str, Optional[str]] = {}
     available_versions_updated_at = None
+    reasonable_permissions_enabled = None
     shared_home = None
 
     if metadata:
@@ -137,6 +138,9 @@ def read_existing_state(layout: Layout) -> ExistingState:
         raw_updated_at = metadata.get("available_versions_updated_at")
         if isinstance(raw_updated_at, str):
             available_versions_updated_at = raw_updated_at
+        raw_reasonable_permissions = metadata.get("reasonable_permissions_enabled")
+        if isinstance(raw_reasonable_permissions, bool):
+            reasonable_permissions_enabled = raw_reasonable_permissions
         raw_shared_home = metadata.get("shared_home")
         if isinstance(raw_shared_home, bool):
             shared_home = raw_shared_home
@@ -165,6 +169,7 @@ def read_existing_state(layout: Layout) -> ExistingState:
         pinned_codex_version=(
             pinned_codex_version if isinstance(pinned_codex_version, str) else None
         ),
+        reasonable_permissions_enabled=reasonable_permissions_enabled,
         available_versions=available_versions,
         available_versions_updated_at=available_versions_updated_at,
         shared_home=shared_home,

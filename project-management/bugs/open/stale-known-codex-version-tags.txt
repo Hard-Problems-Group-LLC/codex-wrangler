@@ -1,0 +1,72 @@
+Stale known Codex version detection
+
+Status: Open
+Date Opened: 2026-04-08T16:13:00-07:00
+Scope: version detection, install defaults, inspect reporting, and
+upgrade guidance
+
+Summary
+
+`codex-wrangler` treats baked-in constants as the current latest Codex
+versions. That makes `--inspect` and channel-preserving upgrade logic stale as
+soon as npm publishes newer releases.
+
+Symptoms
+
+- `codex-wrangler --inspect /home/mheck/AI-ASSISTED-ADMIN` reported
+  `latest_known_stable = 0.116.0` and
+  `latest_known_alpha = 0.117.0-alpha.19`.
+- The same inspection report labeled the selected version source as
+  `latest known alpha`.
+- On the same date, `npm view @openai/codex dist-tags --json` reported
+  `latest = 0.118.0` and `alpha = 0.119.0-alpha.23`.
+
+Confirmed Local Evidence
+
+- `src/codex_wrangler/constants.py` defines
+  `DEFAULT_STABLE_CODEX_VERSION = "0.116.0"` and
+  `DEFAULT_ALPHA_CODEX_VERSION = "0.117.0-alpha.19"`.
+- `src/codex_wrangler/rendering.py` returns those constants as
+  `latest_known_stable` and `latest_known_alpha`.
+- `src/codex_wrangler/config.py` uses the same constants when the operator
+  asks for the latest known stable or alpha version, and when it preserves the
+  existing channel during upgrade.
+- `tests/test_config.py`, `tests/conftest.py`, and
+  `tests/test_operations.py` currently normalize the stale values.
+
+Registry Snapshot
+
+- `0.116.0`: published `2026-03-19T17:52:17.991Z`
+- `0.117.0-alpha.19`: published `2026-03-25T21:37:08.138Z`
+- `0.118.0`: published `2026-03-31T17:03:18.490Z`
+- `0.119.0-alpha.23`: published `2026-04-08T21:50:45.853Z`
+
+Impact
+
+- `--inspect` presents stale version knowledge as if it were current fact.
+- Fresh installs that rely on `latest known alpha` or `latest known stable`
+  can target the wrong version.
+- Upgrade guidance becomes misleading until a new `codex-wrangler` release
+  updates the constants.
+- The tool has no visible distinction between current registry state and an
+  embedded fallback snapshot.
+
+Likely Root Cause
+
+The current design conflates two different concerns:
+
+- policy defaults such as `stable` versus `alpha`
+- the current registry targets for those channels
+
+Because the resolved version numbers live in source constants, the tool cannot
+notice newer releases without shipping a new `codex-wrangler` release first.
+
+Recommendation
+
+- Resolve channel targets dynamically from npm when network access is
+  available.
+- Keep embedded fallback versions only as explicit offline fallbacks.
+- Label fallback data clearly as cached or embedded rather than `latest
+  known`.
+- Add tests that mock npm registry responses and validate both live
+  resolution and offline-fallback behavior.

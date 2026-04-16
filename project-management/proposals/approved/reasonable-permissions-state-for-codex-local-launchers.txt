@@ -1,0 +1,238 @@
+Engineering Change Request: Managed Reasonable-Permissions State for
+codex-local Launchers
+====================================================================
+
+Title: Engineering Change Request: Managed Reasonable-Permissions State for
+codex-local Launchers
+Author: Codex
+Date: 2026-04-15T14:48:15-07:00
+Status: Approved
+Reviewers: operator (repository maintainer), AI maintainers
+Related Work: Direct operator request on 2026-04-15;
+`../NiceBeach/ECRs/codex-wrangler/add-set-reasonable-permissions-flag.md`;
+`project-management/proposals/approved/runtime-fidelity-for-codex-local-and-agent-sandboxes.txt`;
+`docs/specifications/runtime_fidelity_and_startup_preflight.txt`;
+`docs/specifications/reasonable_permissions_for_codex_local_launchers.txt`
+
+Problem Statement
+-----------------
+`codex-wrangler` currently manages a project-local Codex package tree,
+generated `bin/codex-local` launcher, metadata file, and local operator
+README. The generated launcher localizes the npm install and, by default,
+isolates Codex `HOME`, but it does not currently encode any managed default
+for Codex approval or sandbox mode. As a result, repo-local `codex-local`
+sessions inherit whatever approval behavior the installed Codex client chooses
+at runtime.
+
+Recent Codex behavior has made that omission expensive in practice. In the
+NiceBeach investigation, ordinary in-repository `apply_patch` edits launched
+through the generated wrapper repeatedly prompted for patch approval even
+though the desired local operating mode was to permit normal in-workspace
+edits while keeping the shell-command sandbox at `workspace-write`.
+
+The current `codex-wrangler` architecture also lacks a first-class place to
+persist that operating preference. Today, a wrapper-only edit would be brittle
+because the launcher is generated content, and a naive new CLI flag would be
+dangerous because the current default install path interprets a bare
+`codex-wrangler .` invocation as a fresh install request that can resolve to
+latest stable. This change therefore needs explicit managed state, not launch
+argument text surgery.
+
+Goals
+-----
+- Add `--set-reasonable-permissions` and
+  `--clear-reasonable-permissions` as first-class `codex-wrangler` controls.
+- Persist one explicit managed state field that records whether reasonable
+  permissions are enabled for the target project.
+- Render the launcher so it defaults Codex to `-a never` and
+  `-s workspace-write` only when that managed state is enabled and the caller
+  did not already choose approval or sandbox behavior.
+- Preserve explicit caller intent for approval and sandbox flags, including
+  `--full-auto` and
+  `--dangerously-bypass-approvals-and-sandbox`.
+- Surface the managed state in both `--inspect` output and the generated
+  `README-LOCAL-Start-Codex.md`.
+- Make set and clear operations regenerate managed files from stored state
+  without silently changing the installed Codex package selection.
+
+Non-Goals
+---------
+- Make reasonable permissions the default for every install automatically.
+- Disable sandboxing or bypass approvals beyond the requested
+  `workspace-write` plus `-a never` default.
+- Override explicit operator-supplied Codex launch flags.
+- Implement enable or clear behavior by grepping old launcher text for
+  `-a` or `-s` fragments and stripping them.
+- Expand this change into a broader runtime-policy or bootstrap redesign.
+
+Use Cases
+---------
+1. A project owner with an existing managed install runs
+   `codex-wrangler --set-reasonable-permissions .` and expects the launcher,
+   metadata, and README to refresh without upgrading or reinstalling Codex.
+2. The same owner later runs
+   `codex-wrangler --clear-reasonable-permissions .` and expects the wrapper
+   to stop defaulting approval and sandbox flags by regenerating from stored
+   false or unset state.
+3. An operator launches `./bin/codex-local resume --last` after enabling the
+   state and expects the wrapper to add `-a never -s workspace-write` because
+   no explicit approval or sandbox choice was supplied.
+4. An operator launches
+   `./bin/codex-local -a on-request -s read-only` and expects the wrapper to
+   preserve those explicit flags without layering additional defaults.
+5. An operator launches
+   `./bin/codex-local --full-auto` or
+   `./bin/codex-local --dangerously-bypass-approvals-and-sandbox` and expects
+   the wrapper to respect that explicit mode rather than partially overriding
+   it.
+
+Constraints and Assumptions
+---------------------------
+- Managed state already flows through `src/codex_wrangler/models.py`,
+  `layout.py`, `rendering.py`, and `operations.py`; the new behavior should
+  use that same path so `--inspect`, launcher comparison, and README
+  comparison remain authoritative.
+- Current bare install behavior defaults to latest stable when no explicit
+  upgrade request is present. The new set and clear flags must not reuse that
+  path in a way that changes the installed package version unintentionally.
+- Existing metadata is authoritative when present, but older managed installs
+  may lack the new field. Missing data should therefore mean
+  "reasonable permissions disabled" unless the operator explicitly enables it.
+- The generated launcher is Bash and currently ends in
+  `exec npx --prefix "$local_prefix" codex "$@"`; the new behavior should
+  stay compatible with that shell environment and keep launch logic readable.
+- The wrapper must treat the following caller inputs as explicit approval or
+  sandbox choices that suppress managed defaults:
+  `-a`, `--ask-for-approval`, `--ask-for-approval=...`, `-s`, `--sandbox`,
+  `--sandbox=...`, `--full-auto`, and
+  `--dangerously-bypass-approvals-and-sandbox`.
+- The generated local README is an operator aid and should state the active
+  default plainly so the wrapper behavior is not surprising.
+
+Proposed Approach
+-----------------
+Introduce one new managed boolean state,
+`reasonable_permissions_enabled`, carried through config normalization,
+existing-state discovery, metadata rendering, inspection, launcher rendering,
+and README rendering.
+
+Add two mutually exclusive CLI flags:
+- `--set-reasonable-permissions`
+- `--clear-reasonable-permissions`
+
+Treat those flags as state mutators rather than package-selection requests.
+When either flag is used without an explicit `--upgrade`, the command should
+preserve the currently managed Codex selector, channel, and resolved version,
+rewrite metadata plus generated files, and skip any npm package drift unless
+another install-changing flag explicitly requests it. In other words, toggling
+reasonable permissions must behave like a reconfiguration pass, not like an
+implicit reinstall to latest stable.
+
+Render the launcher from that stored state rather than by editing prior shell
+text. The generated script should declare one explicit wrapper state variable
+or shell boolean, build `default_codex_args=()`, scan `"$@"` for explicit
+approval or sandbox intent, and append `-a never` plus
+`-s workspace-write` only when the stored state is enabled and no conflicting
+caller choice is present. The final exec should use the form:
+
+- `exec npx --prefix "$local_prefix" codex "${default_codex_args[@]}" "$@"`
+
+Extend metadata and inspection output so operators can see whether reasonable
+permissions are enabled. Extend the generated README with a short section that
+states the active default and shows how explicit caller flags override it.
+Keep older installs compatible by treating missing metadata as disabled state
+while still allowing `--set-reasonable-permissions` to regenerate the wrapper
+cleanly.
+
+Risks and Mitigations
+---------------------
+- Risk: a bare set or clear command accidentally resolves latest stable and
+  changes the installed package.
+  Mitigation: treat the new flags as reconfiguration state changes that
+  preserve the existing package selection unless an explicit upgrade request
+  is also present.
+- Risk: wrapper argument scanning misses one form of explicit operator intent.
+  Mitigation: cover short flags, long flags, equals-sign forms,
+  `--full-auto`, and the dangerous bypass mode in focused launcher tests.
+- Risk: operators forget that the wrapper is adding defaults.
+  Mitigation: record the state in metadata, expose it in inspect output, and
+  document it in the generated README.
+- Risk: a clear operation tries to mutate old launcher text directly and
+  leaves stale behavior behind.
+  Mitigation: render from stored state every time and make clear-path tests
+  compare regenerated content, not patch operations on prior shell text.
+
+Testing and Validation
+----------------------
+- Add unit coverage for CLI parsing and config normalization around the new
+  set and clear flags, including the rule that toggle-only invocations preserve
+  existing package selection.
+- Add metadata and existing-state tests so the boolean persists and older
+  installs without the field still inspect as disabled.
+- Add launcher-rendering tests for enabled and disabled states, explicit
+  caller overrides, `--full-auto`, dangerous bypass mode, and the clean clear
+  path.
+- Add README and inspect-report tests so operator-visible state matches the
+  stored metadata.
+- Rerun the local quality gate and pytest suite after implementation, in line
+  with the repository's required-check policy.
+
+Alternatives Considered
+-----------------------
+1. Tell operators to pass `-a never -s workspace-write` manually every time.
+   Rejected because the goal is a project-local managed default for launcher
+   use, not a memorized manual convention.
+2. Hard-code the defaults into every generated launcher with no stored state.
+   Rejected because not every project should adopt that policy.
+3. Implement enable and clear by editing existing launcher text in place.
+   Rejected because the launcher is generated content and that approach would
+   be brittle across wrapper revisions.
+4. Store only an environment-variable hint in the README and leave the
+   launcher unchanged.
+   Rejected because it would not provide deterministic project-local behavior.
+
+Open Questions
+--------------
+None at proposal approval time. The ECR already resolves the core policy
+question: this is an opt-in managed wrapper default that must preserve
+explicit caller intent and keep the shell-command sandbox at
+`workspace-write`.
+
+Milestones
+----------
+1. Land the approved proposal and implementation plan.
+   Target date: 2026-04-15.
+   Owners: Codex, operator.
+   Dependencies: direct operator request and NiceBeach ECR.
+   Entry criteria: the ECR is stable enough to translate into local policy.
+   Exit criteria: this approved proposal exists with the no-package-drift
+   rule called out explicitly.
+2. Implement managed state, launcher rendering, inspect, and README updates.
+   Target date: 2026-04-16.
+   Owners: Codex.
+   Dependencies: milestone 1.
+   Entry criteria: approved proposal accepted as the execution contract.
+   Exit criteria: the wrapper, metadata, inspect report, and README all honor
+   the stored state.
+3. Validate override handling and clear-path regeneration.
+   Target date: 2026-04-16.
+   Owners: Codex.
+   Dependencies: milestone 2.
+   Entry criteria: implementation is present.
+   Exit criteria: focused tests and required checks confirm caller override
+   handling, older-install compatibility, and clean regeneration from the
+   stored false or unset state.
+
+Adoption and Rollout
+--------------------
+Roll this out as an opt-in capability for managed projects. Existing installs
+should remain unchanged until an operator explicitly runs the set flag.
+Inspect output and the generated README should make the state visible so
+operators know when the wrapper is defaulting approval and sandbox flags.
+Older managed installs should continue to inspect and launch normally, with
+missing metadata treated as disabled until an operator opts in.
+
+Decision Log
+------------
+- 2026-04-15T14:48:15-07:00 - Approved by the operator via direct request to
+  translate the NiceBeach ECR into a native `codex-wrangler` proposal.

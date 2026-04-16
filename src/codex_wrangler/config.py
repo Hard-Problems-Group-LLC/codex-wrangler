@@ -68,6 +68,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "  refresh known versions:     codex-wrangler --update .\n"
             "  upgrade to latest alpha:    codex-wrangler --upgrade --channel alpha .\n"
             "  upgrade to exact beta:      codex-wrangler --upgrade --channel beta --version 0.31.0-beta.2 .\n"
+            "  enable reasonable perms:    codex-wrangler --set-reasonable-permissions .\n"
             "  inspect current state:      codex-wrangler --inspect .\n"
             "  uninstall managed setup:    codex-wrangler --uninstall .\n"
         ),
@@ -234,6 +235,23 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "filesystem or running npm install/uninstall commands."
         ),
     )
+    reasonable_permissions_group = parser.add_mutually_exclusive_group()
+    reasonable_permissions_group.add_argument(
+        "--set-reasonable-permissions",
+        action="store_true",
+        help=(
+            "Persist a managed launcher default that adds `-a never` and "
+            "`-s workspace-write` unless the caller already selected "
+            "approval or sandbox behavior."
+        ),
+    )
+    reasonable_permissions_group.add_argument(
+        "--clear-reasonable-permissions",
+        action="store_true",
+        help=(
+            "Clear the managed launcher default for approval and sandbox " "behavior."
+        ),
+    )
 
     args = parser.parse_args(argv)
     args.requested_version = normalize_requested_version(args.requested_version)
@@ -254,6 +272,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         parser.error("--upgrade requires --channel <stable|beta|alpha>.")
     if args.upgrade and args.skip_install:
         parser.error("--skip-install is not valid with --upgrade.")
+    if (args.set_reasonable_permissions or args.clear_reasonable_permissions) and (
+        args.inspect or args.selftest or args.uninstall or args.update
+    ):
+        parser.error(
+            "--set-reasonable-permissions and --clear-reasonable-permissions "
+            "are only valid for install-like operations."
+        )
     return args
 
 
@@ -284,6 +309,50 @@ def determine_shared_home(
     if existing.shared_home is not None:
         return existing.shared_home
     return False
+
+
+def determine_reasonable_permissions(
+    args: argparse.Namespace,
+    existing: ExistingState,
+) -> bool:
+    """Decide whether the managed launcher should default approval flags."""
+
+    if args.set_reasonable_permissions:
+        return True
+    if args.clear_reasonable_permissions:
+        return False
+    if existing.reasonable_permissions_enabled is not None:
+        return existing.reasonable_permissions_enabled
+    return False
+
+
+def has_existing_managed_selection(existing: ExistingState) -> bool:
+    """Return True when one prior managed install can be inferred safely."""
+
+    return any(
+        (
+            existing.metadata is not None,
+            existing.requested_codex_selector is not None,
+            existing.codex_channel is not None,
+            existing.pinned_codex_version is not None,
+        )
+    )
+
+
+def is_reasonable_permissions_reconfigure(
+    args: argparse.Namespace,
+    existing: ExistingState,
+    operation: str,
+) -> bool:
+    """Return True when the command should only rewrite managed files."""
+
+    if operation != "install":
+        return False
+    if not (args.set_reasonable_permissions or args.clear_reasonable_permissions):
+        return False
+    if args.channel is not None or args.requested_version is not None:
+        return False
+    return has_existing_managed_selection(existing)
 
 
 def existing_codex_state(
@@ -317,6 +386,9 @@ def determine_target_selection(
     """Resolve the requested Codex selector, channel, version, and source."""
 
     if operation in ("inspect", "selftest", "uninstall", "update"):
+        return existing_codex_state(existing)
+
+    if is_reasonable_permissions_reconfigure(args, existing, operation):
         return existing_codex_state(existing)
 
     requested_version = args.requested_version
@@ -372,6 +444,8 @@ def config_from_args(args: argparse.Namespace) -> Config:
     operation = determine_operation(args)
     existing = read_existing_state(layout)
     shared_home = determine_shared_home(args, existing)
+    reasonable_permissions_enabled = determine_reasonable_permissions(args, existing)
+    reconfigure_only = is_reasonable_permissions_reconfigure(args, existing, operation)
     codex_selector, codex_channel, codex_version, version_source = (
         determine_target_selection(args, existing, operation)
     )
@@ -388,6 +462,8 @@ def config_from_args(args: argparse.Namespace) -> Config:
         dry_run=bool(args.dry_run),
         layout=layout,
         version_source=version_source,
+        reasonable_permissions_enabled=reasonable_permissions_enabled,
+        reconfigure_only=reconfigure_only,
         available_versions=dict(existing.available_versions),
         available_versions_updated_at=existing.available_versions_updated_at,
     )

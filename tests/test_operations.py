@@ -175,12 +175,72 @@ def test_update_operation_refreshes_known_versions_without_rewriting_package_jso
     assert metadata["available_versions"]["alpha"] == "0.31.0-alpha.1"
 
 
+def test_install_like_operation_toggle_only_skips_package_install(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    config = config_factory(
+        tmp_path,
+        codex_selector="latest",
+        codex_channel="beta",
+        codex_version="0.31.0-beta.2",
+        version_source="existing metadata",
+        reasonable_permissions_enabled=True,
+        reconfigure_only=True,
+    )
+    materialize_managed_install(config_factory(tmp_path))
+    called = {"resolve_install_version": False, "run_command": False}
+
+    def fail_resolve_install_version(_config, _npm_name):
+        called["resolve_install_version"] = True
+        raise AssertionError("resolve_install_version should not run")
+
+    def fail_run_command(*args, **kwargs):
+        called["run_command"] = True
+        raise AssertionError("run_command should not run")
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.resolve_install_version",
+        fail_resolve_install_version,
+    )
+    monkeypatch.setattr("codex_wrangler.operations.run_command", fail_run_command)
+
+    exit_code = install_like_operation(config)
+
+    assert exit_code == 0
+    metadata = json.loads(config.layout.metadata_path.read_text(encoding="utf-8"))
+    assert metadata["reasonable_permissions_enabled"] is True
+    assert called["resolve_install_version"] is False
+    assert called["run_command"] is False
+
+
+def test_install_like_operation_clear_regenerates_disabled_launcher(
+    tmp_path,
+    config_factory,
+):
+    enabled_config = config_factory(tmp_path, reasonable_permissions_enabled=True)
+    materialize_managed_install(enabled_config)
+    clear_config = config_factory(
+        tmp_path,
+        reasonable_permissions_enabled=False,
+        reconfigure_only=True,
+    )
+
+    exit_code = install_like_operation(clear_config)
+
+    assert exit_code == 0
+    launcher = clear_config.layout.launcher_path.read_text(encoding="utf-8")
+    assert 'reasonable_permissions_enabled="0"' in launcher
+    assert 'reasonable_permissions_enabled="1"' not in launcher
+
+
 def test_gather_inspection_report_surfaces_warnings_and_metadata_mismatch(
     monkeypatch,
     tmp_path,
     config_factory,
 ):
-    config = config_factory(tmp_path)
+    config = config_factory(tmp_path, reasonable_permissions_enabled=True)
     config.layout.local_dir.mkdir(parents=True, exist_ok=True)
     config.layout.local_package_json_path.write_text(
         build_local_package_json(config.codex_version),
@@ -246,6 +306,8 @@ def test_gather_inspection_report_surfaces_warnings_and_metadata_mismatch(
 
     report = gather_inspection_report(config)
 
+    assert report["requested_configuration"]["reasonable_permissions_enabled"] is True
+    assert report["state"]["reasonable_permissions_enabled"] is True
     assert any(
         "does not appear to be a git repository" in item for item in report["warnings"]
     )

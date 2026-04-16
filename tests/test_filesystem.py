@@ -35,6 +35,57 @@ def test_upsert_gitignore_block_replaces_managed_block_without_trailing_newline(
     text = gitignore_path.read_text(encoding="utf-8")
     assert text.count("# BEGIN managed by codex-wrangler") == 1
     assert "README-LOCAL-Start-Codex.md" in text
+    assert ".codex" in text
+    assert "bin/codex-local" in text
+
+
+def test_upsert_gitignore_block_creates_missing_file(tmp_path):
+    layout = build_layout(
+        tmp_path,
+        ".codex-local",
+        ".codex-home",
+        "bin/codex-local",
+        "README-LOCAL-Start-Codex.md",
+    )
+    gitignore_path = tmp_path / ".gitignore"
+
+    upsert_gitignore_block(
+        gitignore_path,
+        build_gitignore_block(layout),
+        dry_run=False,
+    )
+
+    text = gitignore_path.read_text(encoding="utf-8")
+    assert text.startswith("# BEGIN managed by codex-wrangler\n")
+    assert "# Local Codex package, home, wrapper, and sentinel artifacts." in text
+    assert ".codex\n" in text
+    assert "bin/codex-local\n" in text
+
+
+def test_upsert_gitignore_block_appends_rules_even_when_rules_exist_elsewhere(
+    tmp_path,
+):
+    layout = build_layout(
+        tmp_path,
+        ".codex-local",
+        ".codex-home",
+        "bin/codex-local",
+        "README-LOCAL-Start-Codex.md",
+    )
+    gitignore_path = tmp_path / ".gitignore"
+    gitignore_path.write_text(".codex\nbin/codex-local\n", encoding="utf-8")
+
+    upsert_gitignore_block(
+        gitignore_path,
+        build_gitignore_block(layout),
+        dry_run=False,
+    )
+
+    text = gitignore_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    assert lines.count("# BEGIN managed by codex-wrangler") == 1
+    assert lines.count(".codex") == 2
+    assert lines.count("bin/codex-local") == 2
 
 
 def test_remove_gitignore_block_handles_eof_without_trailing_newline(tmp_path):

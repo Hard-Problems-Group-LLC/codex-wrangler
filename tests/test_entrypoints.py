@@ -3,6 +3,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from codex_wrangler.cli import main
+
 
 def _write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
@@ -33,6 +35,18 @@ def test_repo_wrapper_runs_from_checkout():
     assert "--update" in completed.stdout
     assert "--channel {stable,beta,alpha}" in completed.stdout
     assert "--version REQUESTED_VERSION" in completed.stdout
+
+
+def test_cli_inspect_ensures_managed_gitignore_block(monkeypatch, tmp_path):
+    monkeypatch.setattr("codex_wrangler.cli.inspect_operation", lambda config: 0)
+
+    exit_code = main(["--inspect", str(tmp_path)])
+
+    assert exit_code == 0
+    text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert "# BEGIN managed by codex-wrangler" in text
+    assert ".codex" in text
+    assert "bin/codex-local" in text
 
 
 def test_install_stage_2_help_runs_from_checkout():

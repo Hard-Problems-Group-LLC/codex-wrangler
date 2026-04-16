@@ -46,6 +46,8 @@ class Config:
     dry_run: bool
     layout: Layout
     version_source: str
+    reasonable_permissions_enabled: bool = False
+    reconfigure_only: bool = False
     available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
     available_versions_updated_at: Optional[str] = None
 
@@ -58,6 +60,7 @@ class ExistingState:
     requested_codex_selector: Optional[str] = None
     codex_channel: Optional[str] = None
     pinned_codex_version: Optional[str] = None
+    reasonable_permissions_enabled: Optional[bool] = None
     available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
     available_versions_updated_at: Optional[str] = None
     shared_home: Optional[bool] = None

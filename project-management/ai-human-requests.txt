@@ -17,6 +17,33 @@ Completed Requests
 ------------------
 
 *
+  2026-04-15T15:14:36-07:00
+  Requestor: operator
+  Action: Implement the approved reasonable-permissions launcher-state
+  proposal.
+  Status: completed by Codex on 2026-04-15T15:14:36-07:00. Added the
+  specification, managed config and metadata state, set/clear CLI flags,
+  reconfiguration-only toggle behavior for existing installs, launcher
+  injection of `-a never -s workspace-write` with explicit caller override
+  detection, inspect and generated README visibility, tracked launcher
+  refresh, README updates, and focused tests for persistence, clear-path
+  regeneration, and launcher override cases.
+
+*
+  2026-04-15T14:48:15-07:00
+  Requestor: operator
+  Action: Orient to `codex-wrangler` and TheKnowledge, then translate the
+  NiceBeach ECR for reasonable-permissions defaults into a pre-approved local
+  proposal.
+  Status: completed by Codex on 2026-04-15T14:48:15-07:00. Added an approved
+  proposal under `project-management/proposals/approved/` that scopes the
+  change to managed metadata, launcher defaulting, inspect and README
+  visibility, and clean clear-path regeneration. The proposal also makes
+  explicit that `--set-reasonable-permissions` and
+  `--clear-reasonable-permissions` must behave as reconfiguration toggles
+  rather than silently reinstalling or upgrading Codex.
+
+*
   2026-04-15T14:17:07-07:00
   Requestor: operator
   Action: Split Codex version-catalog refresh from package upgrades, require

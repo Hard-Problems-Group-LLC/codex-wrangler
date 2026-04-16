@@ -13,6 +13,18 @@ and this repository aims to follow
 - Added this top-level changelog and a repo-local commit helper that preserves
   pending commit summaries in it before the queue is cleared by the standard
   commit workflow.
+- Added an approved proposal for opt-in managed reasonable-permissions
+  defaults in generated `bin/codex-local` launchers, including the rule that
+  set and clear operations must preserve the current package selection rather
+  than silently reinstalling latest stable.
+- Added `--set-reasonable-permissions` and
+  `--clear-reasonable-permissions` to persist opt-in launcher defaults that
+  add `-a never -s workspace-write` only when callers did not already choose
+  approval or sandbox behavior.
+- Added automatic managed `.gitignore` enforcement for `.codex` and
+  `bin/codex-local` so generated local Codex artifacts stay untracked.
+- Added stale known Codex version bug tracking records under
+  `project-management/bugs/`.
 
 ### Changed
 
@@ -34,6 +46,9 @@ and this repository aims to follow
   refreshes locally known stable, beta, and alpha versions, `--upgrade`
   requires an explicit `--channel`, and installs/upgrades now carry channel
   metadata plus locally known version tables.
+- Extended generated metadata, inspect output, local README content, and the
+  tracked `bin/codex-local` launcher to surface and preserve the managed
+  reasonable-permissions state.
 
 ### Fixed
 

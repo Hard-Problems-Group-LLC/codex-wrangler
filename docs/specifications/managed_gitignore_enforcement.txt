@@ -1,0 +1,44 @@
+Managed Gitignore Enforcement
+=============================
+
+Purpose
+-------
+Ensure `codex-wrangler` keeps generated local Codex artifacts untracked even
+when a target project has not already configured local ignore rules.
+
+Scope
+-----
+This specification covers the managed `.gitignore` block that
+`codex-wrangler` writes to a target project root for local Codex artifacts.
+
+Requirements
+------------
+1. Startup enforcement
+   Every normal `codex-wrangler` operation that is not uninstall cleanup must
+   ensure the target project's `.gitignore` contains the managed block before
+   running operation-specific behavior.
+2. Missing file
+   When the target project has no `.gitignore`, `codex-wrangler` must create
+   one containing only the managed block.
+3. Missing managed block
+   When a `.gitignore` exists without the managed block, `codex-wrangler`
+   must append the managed block without rewriting unrelated entries.
+4. Existing unmanaged entries
+   If `.codex` or `bin/codex-local` already appear outside the managed block,
+   `codex-wrangler` must still add those entries inside the managed block.
+   Redundant ignore rules are acceptable and safer than moving or deleting
+   user-owned rules.
+5. Required entries
+   The managed block must contain an explanatory comment plus ignore rules for
+   `.codex`, `bin/codex-local`, and the existing local Codex managed artifacts.
+6. Uninstall cleanup
+   `--uninstall` remains responsible for removing the managed block as part
+   of conservative cleanup. It must not recreate the block before removing it.
+
+Validation
+----------
+- Unit tests must cover creating `.gitignore` with the managed block.
+- Unit tests must cover appending the managed block even when `.codex` and
+  `bin/codex-local` already exist outside it.
+- Entry-point tests must cover enforcing the managed block before an
+  operation such as `--inspect` delegates to operation-specific behavior.

@@ -58,6 +58,16 @@ from .runtime import (
 )
 
 
+def ensure_gitignore_block(config: Config) -> None:
+    """Ensure the managed `.gitignore` block exists for local artifacts."""
+
+    upsert_gitignore_block(
+        config.layout.gitignore_path,
+        build_gitignore_block(config.layout),
+        dry_run=config.dry_run,
+    )
+
+
 def write_managed_supporting_files(config: Config) -> None:
     """Write the managed launcher, README, .gitignore block, and metadata."""
 
@@ -77,11 +87,7 @@ def write_managed_supporting_files(config: Config) -> None:
         dry_run=config.dry_run,
         managed_markers=(README_MARKER,),
     )
-    upsert_gitignore_block(
-        config.layout.gitignore_path,
-        build_gitignore_block(config.layout),
-        dry_run=config.dry_run,
-    )
+    ensure_gitignore_block(config)
     write_metadata(
         config.layout.metadata_path,
         build_metadata(config),
@@ -105,15 +111,18 @@ def require_existing_managed_install(config: Config) -> None:
 def install_like_operation(config: Config) -> int:
     """Shared implementation for install and upgrade-style operations."""
 
-    npm_name, npx_name = detect_npm_binaries()
-    ensure_command_exists("node")
-    ensure_command_exists(npm_name)
-    ensure_command_exists(npx_name)
-
-    if config.operation == "upgrade":
-        resolved_config = resolve_upgrade_version(config)
+    if config.reconfigure_only:
+        resolved_config = config
     else:
-        resolved_config = resolve_install_version(config, npm_name)
+        npm_name, npx_name = detect_npm_binaries()
+        ensure_command_exists("node")
+        ensure_command_exists(npm_name)
+        ensure_command_exists(npx_name)
+
+        if config.operation == "upgrade":
+            resolved_config = resolve_upgrade_version(config)
+        else:
+            resolved_config = resolve_install_version(config, npm_name)
 
     eprint(
         "[codex-wrangler] Target project root: {}".format(resolved_config.project_root)
@@ -129,6 +138,11 @@ def install_like_operation(config: Config) -> int:
             else "project-local isolated HOME"
         )
     )
+    eprint(
+        "[codex-wrangler] Reasonable permissions default: {}".format(
+            "enabled" if resolved_config.reasonable_permissions_enabled else "disabled"
+        )
+    )
 
     write_text_file(
         resolved_config.layout.local_package_json_path,
@@ -139,7 +153,12 @@ def install_like_operation(config: Config) -> int:
     )
     write_managed_supporting_files(resolved_config)
 
-    if resolved_config.dry_run:
+    if resolved_config.reconfigure_only:
+        eprint(
+            "[codex-wrangler] Skipping npm install because this command only "
+            "updates managed launcher state."
+        )
+    elif resolved_config.dry_run:
         eprint(
             "[codex-wrangler] Would run: {} install --prefix {}".format(
                 npm_name, resolved_config.layout.local_dir
@@ -253,6 +272,7 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
             "codex_channel": config.codex_channel,
             "codex_version": config.codex_version,
             "shared_home": config.shared_home,
+            "reasonable_permissions_enabled": (config.reasonable_permissions_enabled),
             "version_source": config.version_source,
         },
         "runtime_environment": runtime_environment,
@@ -276,6 +296,7 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
             "metadata": metadata,
             "available_versions": dict(config.available_versions),
             "available_versions_updated_at": config.available_versions_updated_at,
+            "reasonable_permissions_enabled": (config.reasonable_permissions_enabled),
             "codex_home_exists": config.layout.codex_home_dir.exists(),
             "launcher_exists": config.layout.launcher_path.exists(),
             "launcher_executable": (

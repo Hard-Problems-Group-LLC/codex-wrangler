@@ -1,0 +1,73 @@
+Reasonable Permissions for codex-local Launchers
+================================================
+
+Purpose
+-------
+Define how `codex-wrangler` should persist and render an opt-in managed
+launcher default that keeps normal in-repository Codex edits flowing without
+repeated approval prompts while preserving the shell-command sandbox at
+`workspace-write`.
+
+Scope
+-----
+This specification covers:
+
+- `codex-wrangler --set-reasonable-permissions`;
+- `codex-wrangler --clear-reasonable-permissions`;
+- managed metadata under `.codex-local/.codex-wrangler.json`;
+- the generated `bin/codex-local` launcher;
+- the generated `README-LOCAL-Start-Codex.md`; and
+- `codex-wrangler --inspect`.
+
+Requirements
+------------
+1. Managed state
+   `codex-wrangler` must persist one explicit boolean managed state that
+   records whether reasonable permissions are enabled for the target project.
+   Older managed installs that lack this field must continue to work, with the
+   missing field treated as disabled state until the operator explicitly
+   enables it.
+2. CLI controls
+   The tool must accept two mutually exclusive flags:
+   `--set-reasonable-permissions` and
+   `--clear-reasonable-permissions`. Those flags are valid only for
+   install-like operations, not for inspect, self-test, uninstall, or update.
+3. Toggle-only behavior
+   When one of the new flags is used on an existing managed install without an
+   explicit install-changing request such as `--upgrade`, `--channel`, or
+   `--version`, the command must preserve the current managed Codex selector,
+   channel, and resolved package version. It must rewrite managed files from
+   stored state without silently upgrading or reinstalling Codex.
+4. Launcher defaults
+   When reasonable permissions are enabled, the generated launcher must add
+   `-a never` and `-s workspace-write` only when the caller did not already
+   choose approval or sandbox behavior explicitly.
+5. Explicit caller intent
+   The launcher must treat the following inputs as explicit caller intent that
+   suppresses the managed defaults:
+   - `-a ...`
+   - `--ask-for-approval ...`
+   - `--ask-for-approval=...`
+   - `-s ...`
+   - `--sandbox ...`
+   - `--sandbox=...`
+   - `--full-auto`
+   - `--dangerously-bypass-approvals-and-sandbox`
+6. Generated launcher shape
+   The launcher must render one explicit wrapper state variable or shell
+   boolean that controls the reasonable-permissions behavior. It must not rely
+   on grepping or editing old launcher text to clear the feature later.
+7. Operator visibility
+   The generated local README and `--inspect` output must state whether
+   reasonable permissions are enabled so operators understand why the wrapper
+   may be adding default approval and sandbox flags.
+
+Validation
+----------
+- Unit tests must cover CLI parsing and config normalization for the new set
+  and clear flags.
+- Unit tests must cover persisted metadata and inspection output for the new
+  boolean state.
+- Launcher tests must cover enabled and disabled states, explicit caller
+  overrides, and clean clear-path regeneration from stored false or unset
+  state.
