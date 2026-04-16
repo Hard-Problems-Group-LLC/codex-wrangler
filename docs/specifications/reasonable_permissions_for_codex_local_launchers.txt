@@ -4,9 +4,10 @@ Reasonable Permissions for codex-local Launchers
 Purpose
 -------
 Define how `codex-wrangler` should persist and render an opt-in managed
-launcher default that keeps normal in-repository Codex edits flowing without
-repeated approval prompts while preserving the shell-command sandbox at
-`workspace-write`.
+launcher default that keeps normal in-repository Codex edits flowing inside
+the `workspace-write` sandbox while still allowing Codex to request
+operator approval for maintenance operations that need escalation, such as
+commit and push workflows.
 
 Scope
 -----
@@ -40,8 +41,16 @@ Requirements
    stored state without silently upgrading or reinstalling Codex.
 4. Launcher defaults
    When reasonable permissions are enabled, the generated launcher must add
-   `-a never` and `-s workspace-write` only when the caller did not already
-   choose approval or sandbox behavior explicitly.
+   `-a on-request` and `-s workspace-write` only when the caller did not
+   already choose approval or sandbox behavior explicitly. The default must
+   remain ACP-capable: Codex must still be able to request escalation for
+   `.git` writes and network operations needed by add, commit, and push
+   workflows. The managed default must not use `-a never`. When Codex or
+   its sandbox policy can distinguish local repository maintenance from
+   remote publication, local add and commit operations may be approved as
+   a maintenance class while remote push remains an explicit operator
+   publication approval. Until that finer-grained boundary is available,
+   `on-request` is the required ACP-capable default.
 5. Explicit caller intent
    The launcher must treat the following inputs as explicit caller intent that
    suppresses the managed defaults:
@@ -69,5 +78,5 @@ Validation
 - Unit tests must cover persisted metadata and inspection output for the new
   boolean state.
 - Launcher tests must cover enabled and disabled states, explicit caller
-  overrides, and clean clear-path regeneration from stored false or unset
-  state.
+  overrides, ACP-capable `on-request` defaults, and clean clear-path
+  regeneration from stored false or unset state.

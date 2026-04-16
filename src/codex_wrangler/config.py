@@ -240,7 +240,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--set-reasonable-permissions",
         action="store_true",
         help=(
-            "Persist a managed launcher default that adds `-a never` and "
+            "Persist a managed launcher default that adds `-a on-request` and "
             "`-s workspace-write` unless the caller already selected "
             "approval or sandbox behavior."
         ),

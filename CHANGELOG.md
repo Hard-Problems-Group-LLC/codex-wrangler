@@ -24,8 +24,8 @@ and this repository aims to follow
   than silently reinstalling latest stable.
 - Added `--set-reasonable-permissions` and
   `--clear-reasonable-permissions` to persist opt-in launcher defaults that
-  add `-a never -s workspace-write` only when callers did not already choose
-  approval or sandbox behavior.
+  add `-a on-request -s workspace-write` only when callers did not
+  already choose approval or sandbox behavior.
 - Added automatic managed `.gitignore` enforcement for `.codex` and
   `bin/codex-local` so generated local Codex artifacts stay untracked.
 - Added stale known Codex version bug tracking records under
@@ -33,6 +33,10 @@ and this repository aims to follow
 
 ### Changed
 
+- Changed the managed reasonable-permissions launcher default from
+  `-a never -s workspace-write` to ACP-capable
+  `-a on-request -s workspace-write` so Codex can request escalation for
+  commit and push workflows.
 - Updated AGENTS, README, development docs, git-flow, and state-file guidance
   so this repository treats `completed-tasks.txt` as operational history and
   `CHANGELOG.md` as durable change history.

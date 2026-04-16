@@ -262,6 +262,13 @@ codex-wrangler --set-reasonable-permissions .
 codex-wrangler --clear-reasonable-permissions .
 ```
 
+When enabled, the generated launcher defaults Codex to
+`-a on-request -s workspace-write` unless the caller already supplied
+approval or sandbox flags. That keeps ordinary workspace edits sandboxed
+while preserving approval prompts for ACP operations such as commit and
+push. Operators may approve local add and commit work as maintenance
+activity while treating push as the explicit remote publication step.
+
 Uninstall the managed setup:
 
 ```bash

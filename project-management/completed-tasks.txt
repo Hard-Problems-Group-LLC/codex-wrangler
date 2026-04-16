@@ -5,6 +5,25 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-04-15T21:04:00-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: fixed the reasonable-permissions launcher default so generated
+  `bin/codex-local` wrappers use `-a on-request -s workspace-write` instead
+  of `-a never -s workspace-write`. This keeps normal workspace edits flowing
+  while allowing Codex to request escalation for ACP workflows that need
+  `.git` writes or network push access. Updated the specification, approved
+  proposal amendment, generated README text, regression tests, changelog, and
+  bug lifecycle records. Documented the preferred boundary where local
+  add/commit can be approved as maintenance work while push remains
+  explicit publication approval.
+  Validation: Black, Ruff, compileall, entropy_check,
+  entropy_tripwire_verify, and full pytest passed through
+  `scripts/run_tool_with_timeout.py`; full pytest reported `127` tests
+  green. Focused `tests/test_rendering.py`, `tests/test_config.py`, and
+  `tests/test_operations.py` passed with `39` tests green.
+
+*
   Completed: 2026-04-15T20:35:00-07:00.
   Owner: Codex.
   Requestor: operator.

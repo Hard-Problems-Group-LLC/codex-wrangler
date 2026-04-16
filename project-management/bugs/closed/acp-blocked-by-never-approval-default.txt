@@ -1,0 +1,33 @@
+ACP Blocked By Never Approval Default
+
+Status: Closed
+Date Opened: 2026-04-15T21:04:00-07:00
+Date Resolved: 2026-04-15T21:04:00-07:00
+Scope: generated `bin/codex-local` launchers and ACP workflows
+
+Summary
+
+Projects updated with `codex-wrangler --set-reasonable-permissions` received a
+launcher that defaulted Codex to `-a never -s workspace-write`.
+
+Symptoms
+
+- Ordinary repository file edits could proceed inside the workspace sandbox.
+- ACP workflows could not request escalation for `.git/index.lock`, commit
+  object writes, ref updates, or network push operations.
+- Git commit failed in sandboxes that mounted `.git/` read-only, and push was
+  unavailable because network escalation could not be requested.
+
+Root Cause
+
+The reasonable-permissions preset conflated ordinary workspace-write editing
+with full maintenance workflow support. `-a never` suppressed all approval
+requests, including the approvals needed for `.git` writes and network access.
+
+Resolution
+
+The managed launcher default now uses `-a on-request -s workspace-write`. This
+keeps ordinary edits inside the workspace-write sandbox while preserving
+Codex's ability to ask the operator for escalation during add, commit, and
+push workflows. Explicit caller approval or sandbox flags still override
+the managed defaults.

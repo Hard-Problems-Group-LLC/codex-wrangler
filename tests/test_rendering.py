@@ -73,6 +73,20 @@ def test_build_local_readme_references_console_command(
     assert "~/bin" not in readme
 
 
+def test_build_local_readme_describes_acp_capable_reasonable_permissions(
+    tmp_path,
+    config_factory,
+):
+    config = config_factory(tmp_path, reasonable_permissions_enabled=True)
+
+    readme = build_local_readme_content(config)
+
+    assert "Reasonable permissions default: `enabled`" in readme
+    assert "`-a on-request`" in readme
+    assert "commit and push" in readme
+    assert "`-a never`" not in readme
+
+
 def test_build_metadata_uses_single_source_script_version(
     tmp_path,
     config_factory,
@@ -127,7 +141,7 @@ def test_enabled_launcher_injects_reasonable_permissions_defaults(
         str(tmp_path / ".codex-local"),
         "codex",
         "-a",
-        "never",
+        "on-request",
         "-s",
         "workspace-write",
         "resume",

@@ -44,7 +44,7 @@ Goals
   `--clear-reasonable-permissions` as first-class `codex-wrangler` controls.
 - Persist one explicit managed state field that records whether reasonable
   permissions are enabled for the target project.
-- Render the launcher so it defaults Codex to `-a never` and
+- Render the launcher so it defaults Codex to `-a on-request` and
   `-s workspace-write` only when that managed state is enabled and the caller
   did not already choose approval or sandbox behavior.
 - Preserve explicit caller intent for approval and sandbox flags, including
@@ -59,7 +59,7 @@ Non-Goals
 ---------
 - Make reasonable permissions the default for every install automatically.
 - Disable sandboxing or bypass approvals beyond the requested
-  `workspace-write` plus `-a never` default.
+  `workspace-write` plus `-a on-request` default.
 - Override explicit operator-supplied Codex launch flags.
 - Implement enable or clear behavior by grepping old launcher text for
   `-a` or `-s` fragments and stripping them.
@@ -75,8 +75,9 @@ Use Cases
    to stop defaulting approval and sandbox flags by regenerating from stored
    false or unset state.
 3. An operator launches `./bin/codex-local resume --last` after enabling the
-   state and expects the wrapper to add `-a never -s workspace-write` because
-   no explicit approval or sandbox choice was supplied.
+   state and expects the wrapper to add
+   `-a on-request -s workspace-write` because no explicit approval or
+   sandbox choice was supplied.
 4. An operator launches
    `./bin/codex-local -a on-request -s read-only` and expects the wrapper to
    preserve those explicit flags without layering additional defaults.
@@ -131,7 +132,7 @@ implicit reinstall to latest stable.
 Render the launcher from that stored state rather than by editing prior shell
 text. The generated script should declare one explicit wrapper state variable
 or shell boolean, build `default_codex_args=()`, scan `"$@"` for explicit
-approval or sandbox intent, and append `-a never` plus
+approval or sandbox intent, and append `-a on-request` plus
 `-s workspace-write` only when the stored state is enabled and no conflicting
 caller choice is present. The final exec should use the form:
 
@@ -179,8 +180,9 @@ Testing and Validation
 
 Alternatives Considered
 -----------------------
-1. Tell operators to pass `-a never -s workspace-write` manually every time.
-   Rejected because the goal is a project-local managed default for launcher
+1. Tell operators to pass `-a on-request -s workspace-write` manually
+   every time. Rejected because the goal is a project-local managed
+   default for launcher
    use, not a memorized manual convention.
 2. Hard-code the defaults into every generated launcher with no stored state.
    Rejected because not every project should adopt that policy.
@@ -236,3 +238,26 @@ Decision Log
 ------------
 - 2026-04-15T14:48:15-07:00 - Approved by the operator via direct request to
   translate the NiceBeach ECR into a native `codex-wrangler` proposal.
+
+Post-Approval Amendment: ACP-Capable Approval Default
+----------------------------------------------------
+Date: 2026-04-15T21:04:00-07:00
+Reviewer: operator (repository maintainer)
+
+Follow-up rollout discovered that `-a never -s workspace-write` made normal
+file edits smooth but broke ACP maintenance workflows in Codex sandboxes where
+`.git/` is mounted read-only and network access requires escalation. With
+approval set to `never`, Codex cannot ask to create `.git/index.lock`, write
+commit objects, update refs, or push.
+
+The approved behavior is therefore amended: reasonable-permissions launchers
+must default to `-a on-request -s workspace-write`, not `-a never -s
+workspace-write`. This keeps ordinary workspace edits inside the normal
+workspace-write sandbox while preserving the ability to request operator
+approval for commit, push, and other maintenance operations that require
+escalation. The desired operating boundary is to allow operator-approved
+local add and commit work as maintenance activity while keeping remote
+push as the explicit publication approval. Current Codex approval flags
+do not expose that exact split, so `on-request` is the best available
+ACP-capable default. Explicit caller approval or sandbox flags still
+suppress the managed defaults.
