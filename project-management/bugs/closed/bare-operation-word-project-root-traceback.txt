@@ -1,0 +1,33 @@
+Bare Operation Word Project Root Traceback
+
+Status: Closed
+Date Opened: 2026-04-19T14:57:30-07:00
+Date Resolved: 2026-04-19T14:57:30-07:00
+Scope: `codex-wrangler` CLI configuration errors
+
+Summary
+
+Running `codex-wrangler update` without the required `--` prefix treated
+`update` as the positional project root and then raised an uncaught traceback
+when no repository named `update` existed.
+
+Symptoms
+
+- `codex-wrangler update` failed with a Python traceback.
+- The final exception reported `Project root does not exist: .../update`.
+- The CLI did not explain the likely missing-dash typo.
+
+Root Cause
+
+The command-line contract uses flags such as `--update`, while the positional
+project-root argument remains optional and defaults to the current directory.
+Configuration normalization raised `CodexWranglerError` for nonexistent
+project roots before the entrypoint's error handler was active.
+
+Resolution
+
+The entrypoint now catches configuration-time `CodexWranglerError` exceptions
+and reports them as normal `ERROR: ...` messages. When the nonexistent project
+root is a known long-form flag written without leading dashes, the error adds a
+targeted suggestion such as `Did you perhaps mean '--update'?`. Existing
+directories named `update` still work as project roots.

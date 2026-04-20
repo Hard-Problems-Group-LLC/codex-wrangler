@@ -21,10 +21,9 @@ from .runtime import eprint
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Program entry point."""
 
-    args = parse_args(argv)
-    config = config_from_args(args)
-
     try:
+        args = parse_args(argv)
+        config = config_from_args(args)
         if config.operation != "uninstall":
             ensure_gitignore_block(config)
         if config.operation == "inspect":

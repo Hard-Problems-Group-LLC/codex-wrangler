@@ -8,6 +8,15 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-04-19T14:57:30-07:00. Bare operation words such as
+  `codex-wrangler update` were treated as positional project roots, then
+  produced uncaught tracebacks when no matching directory existed. Root cause:
+  configuration normalization raised `CodexWranglerError` before the CLI error
+  handler was active. Resolution: catch configuration errors in the entrypoint
+  and add missing-dash hints for nonexistent roots that match known long-form
+  flags, while preserving real directories named `update`.
+
+*
   Resolved: 2026-04-15T21:04:00-07:00. Reasonable-permissions launchers used
   `-a never -s workspace-write`, which blocked ACP workflows in sandboxes that
   require escalation for `.git` writes and network push operations. Root

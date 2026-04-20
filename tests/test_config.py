@@ -98,6 +98,34 @@ def test_parse_args_rejects_update_version_request():
         parse_args(["--update", "--version", "latest"])
 
 
+def test_parse_args_keeps_bare_update_as_project_root():
+    args = parse_args(["update"])
+
+    assert args.update is False
+    assert args.project_root == "update"
+
+
+def test_config_from_args_suggests_missing_dashes_for_bare_update():
+    with pytest.raises(CodexWranglerError, match="Did you perhaps mean '--update'"):
+        config_from_args(parse_args(["update"]))
+
+
+def test_config_from_args_suggests_missing_dashes_for_other_known_flags():
+    with pytest.raises(CodexWranglerError, match="Did you perhaps mean '--force'"):
+        config_from_args(parse_args(["force"]))
+
+
+def test_config_from_args_allows_existing_project_named_update(tmp_path, monkeypatch):
+    project = tmp_path / "update"
+    project.mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    config = config_from_args(parse_args(["update"]))
+
+    assert config.operation == "install"
+    assert config.project_root == project.resolve()
+
+
 def test_parse_args_rejects_set_reasonable_permissions_with_inspect():
     with pytest.raises(SystemExit):
         parse_args(["--inspect", "--set-reasonable-permissions"])

@@ -59,8 +59,14 @@ and this repository aims to follow
   tracked `bin/codex-local` launcher to surface and preserve the managed
   reasonable-permissions state.
 
+- Kept bare words such as `update` as positional project-root arguments, but changed configuration errors so nonexistent roots that look like known long-form flags report friendly missing-dash hints instead of Python tracebacks.
+
+
 ### Fixed
 
+- Report nonexistent project-root arguments that look like known long-form
+  flags without `--` as friendly CLI errors with missing-dash suggestions
+  instead of Python tracebacks.
 - Added fallback state inference for older managed installs so refresh and
   launcher update notices can still work when package files exist before the
   newer metadata fields do.

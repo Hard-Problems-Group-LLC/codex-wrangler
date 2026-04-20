@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Optional, Sequence, Tuple
 
 from .constants import (
@@ -17,6 +18,30 @@ from .constants import (
 from .layout import build_layout, read_existing_state, resolve_project_root
 from .models import CodexWranglerError, Config, ExistingState
 from .releases import infer_codex_channel
+
+MISSING_DASH_FLAG_HINTS = {
+    "channel": "--channel",
+    "clear-reasonable-permissions": "--clear-reasonable-permissions",
+    "codex-home-dir": "--codex-home-dir",
+    "codex-version": "--codex-version",
+    "downgrade-to-stable": "--downgrade-to-stable",
+    "dry-run": "--dry-run",
+    "force": "--force",
+    "inspect": "--inspect",
+    "isolated-home": "--isolated-home",
+    "launcher": "--launcher",
+    "local-dir": "--local-dir",
+    "readme-local": "--readme-local",
+    "set-reasonable-permissions": "--set-reasonable-permissions",
+    "selftest": "--selftest",
+    "shared-home": "--shared-home",
+    "skip-install": "--skip-install",
+    "uninstall": "--uninstall",
+    "update": "--update",
+    "upgrade": "--upgrade",
+    "upgrade-to-alpha": "--upgrade-to-alpha",
+    "version": "--version",
+}
 
 
 def normalize_requested_version(raw_value: Optional[str]) -> Optional[str]:
@@ -50,6 +75,26 @@ def validate_channel_version_pair(
             channel,
         )
     )
+
+
+def missing_dash_flag_hint(raw_project_root: str) -> Optional[str]:
+    """Return a likely flag when one project-root token looks like a flag."""
+
+    return MISSING_DASH_FLAG_HINTS.get(raw_project_root)
+
+
+def resolve_config_project_root(raw_project_root: str) -> Path:
+    """Resolve the project root and add CLI-focused hints for common mistakes."""
+
+    try:
+        return resolve_project_root(raw_project_root)
+    except CodexWranglerError as exc:
+        hint = missing_dash_flag_hint(raw_project_root)
+        if hint is not None:
+            raise CodexWranglerError(
+                "{} Did you perhaps mean '{}'?".format(exc, hint)
+            ) from exc
+        raise
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -433,7 +478,7 @@ def determine_target_selection(
 def config_from_args(args: argparse.Namespace) -> Config:
     """Normalize parsed arguments into the internal configuration model."""
 
-    project_root = resolve_project_root(args.project_root)
+    project_root = resolve_config_project_root(args.project_root)
     layout = build_layout(
         project_root=project_root,
         local_dir_raw=args.local_dir,

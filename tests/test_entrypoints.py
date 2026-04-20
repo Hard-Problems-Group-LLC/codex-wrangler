@@ -49,6 +49,24 @@ def test_cli_inspect_ensures_managed_gitignore_block(monkeypatch, tmp_path):
     assert "bin/codex-local" in text
 
 
+def test_cli_reports_configuration_errors_without_traceback(capsys):
+    exit_code = main(["missing-project-root"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "ERROR: Project root does not exist:" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_suggests_missing_dashes_for_bare_update(capsys):
+    exit_code = main(["update"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Did you perhaps mean '--update'?" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_install_stage_2_help_runs_from_checkout():
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "scripts" / "install-stage-2.py"
