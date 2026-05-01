@@ -10,6 +10,12 @@ and this repository aims to follow
 
 ### Added
 
+- Added a TheKnowledge ECR and executable companion proposed
+  `install-stage-2.py` draft for preserving explicit user-home targeting and
+  local managed-file overlays during submodule managed-starter refreshes.
+- Added an open bug record for parent-repo entropy scans traversing ignored
+  local Codex artifacts and submodule-hosted harness calls missing parent
+  relative paths.
 - Added `--repair-install` for install and upgrade operations. It removes
   only managed npm install artifacts under `.codex-local` before reinstalling,
   so interrupted npm installs can be repaired without deleting `.codex-home`.

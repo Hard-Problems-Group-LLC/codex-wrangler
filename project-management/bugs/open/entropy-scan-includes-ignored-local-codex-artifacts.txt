@@ -1,0 +1,46 @@
+Entropy scanner includes ignored local Codex artifacts on parent-root scans
+
+Status: Open
+Date Opened: 2026-04-30T18:46:02-07:00
+Scope: security validation tooling, local quality gates, and ignored
+operator-local generated artifacts
+
+Summary
+
+Parent-repository entropy scans can traverse ignored local Codex state under
+`.codex-home/` and `.codex-local/` even though those paths are ignored by
+Git. A direct scan of the new ECR files was clean, but broad parent-root
+scans produced findings from operator-local generated artifacts rather than
+from candidate repository changes.
+
+Symptoms
+
+- `git check-ignore` confirms `.codex-home/` and `.codex-local/` are ignored.
+- A parent-root entropy scan still reported findings from those ignored local
+  trees.
+- Calling the TheKnowledge entropy harness with parent-repo relative paths
+  scanned zero files because the harness resolves its working root to the
+  TheKnowledge submodule.
+- The same candidate ECR files scanned clean when passed directly to the
+  underlying entropy scanner from the parent repository.
+- A broad parent-root scan passed when `.codex-home`, `.codex-local`, and
+  `bin/codex-local` were explicitly excluded.
+
+Impact
+
+- Broad local entropy checks can fail on ignored operator-local state instead
+  of candidate repository changes.
+- Validation output can include previews of sensitive local artifacts.
+- The default local quality-gate entropy commands can give incomplete
+  confidence about parent-repository coverage when invoked through the
+  TheKnowledge submodule tooling.
+
+Recommendation
+
+- Update the local quality-gate entropy commands to pass the consuming
+  project root deliberately and avoid defaulting to the TheKnowledge
+  submodule root.
+- Fix or work around entropy-check path normalization so Git-ignored
+  parent-repo files are excluded reliably.
+- Add regression tests for ignored local generated trees and parent-repo
+  paths passed through submodule-hosted security tools.
