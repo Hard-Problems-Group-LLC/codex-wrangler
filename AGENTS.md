@@ -55,8 +55,9 @@ project needs behavior different from TheKnowledge's own repository setup. -->
 - Record finished work at the top of
   `project-management/completed-tasks.txt` with ISO 8601 timestamps.
 - Track operator actions for AI in `project-management/ai-human-requests.txt`.
-- Track proposal records under `project-management/proposals/` using
-  `approved/`, `rejected/`, `deferred/`, and `under-review/`.
+- Track proposal records as Markdown files under
+  `project-management/proposals/` using `approved/`, `rejected/`,
+  `deferred/`, and `under-review/`.
 - Use `project-management/deferred.txt` for explicitly deferred work.
 - Queue brief commit-ready summaries in
   `project-management/state/pending-commit-changes.txt`.
@@ -70,6 +71,10 @@ project needs behavior different from TheKnowledge's own repository setup. -->
   should carry top-of-file context, every type and callable should be
   documented, and non-trivial control flow should carry local rationale where
   structure alone would be ambiguous.
+- Prefer Markdown (`.md`) for maintained prose documents, internal records,
+  starter documents, and generated guidance unless a file is machine-consumed,
+  intentionally extensionless, or temporarily kept in a legacy format during
+  an explicit migration.
 - Bootstrap, setup, prerequisite, and environment-selection code should
   follow Python 3.9 best practices unless a higher floor is documented.
 - Normal runtime, automation, test, and developer-tooling code should follow
@@ -131,6 +136,10 @@ project needs behavior different from TheKnowledge's own repository setup. -->
   `--resume-review-prompts` to re-enable prompts for the current shell
   session. The helper rejects commits whose author/committer identity is not
   explicitly configured.
+- `ACP` means "add, commit, push" through the project's VCS workflow. Treat
+  it as a request to stage, commit, and push meaningful blocks with
+  appropriate comments; it is not permission to collapse unrelated work into
+  one monolithic commit or skip review, validation, and identity rules.
 - When working primarily in the consuming project and discovering bugs,
   proposals, complaints, or general notes about TheKnowledge itself,
   record them on the TheKnowledge `Feedback` branch.

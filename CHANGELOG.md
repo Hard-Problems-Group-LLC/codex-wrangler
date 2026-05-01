@@ -38,6 +38,10 @@ and this repository aims to follow
 
 ### Changed
 
+- Updated the TheKnowledge submodule to `dcf9e09` and refreshed the managed
+  AGENTS footer guidance for Markdown proposal records and ACP scope while
+  preserving the project-local `install-stage-2.py` override after validation
+  caught the managed refresh dropping `--user-home` support.
 - Changed generated `bin/codex-local` launchers to execute the managed
   `.codex-local/node_modules/.bin/codex` binary directly instead of using
   `npx codex`, so a missing local install can no longer fall through to the

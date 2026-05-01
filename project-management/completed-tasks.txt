@@ -5,6 +5,21 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-04-30T18:16:10-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: updated the TheKnowledge submodule from `9c75ca9` to `dcf9e09`
+  and refreshed the managed AGENTS footer guidance for Markdown proposal
+  records, maintained prose formats, and ACP scope. The managed submodule
+  update helper also attempted to refresh `scripts/install-stage-2.py`, but
+  that generated change was backed out because it removed `--user-home`
+  support and failed the existing entrypoint contract test.
+  Validation: high-confidence credential scans found no matches.
+  `git diff --check`, `.venv/bin/python scripts/run_black_safe.py --check`,
+  and `.venv/bin/python scripts/run_local_quality_gate.py ruff compileall
+  entropy_check entropy_tripwire_verify pytest` passed with 145 tests green.
+
+*
   Completed: 2026-04-30T17:33:10-07:00.
   Owner: Codex.
   Requestor: operator.
