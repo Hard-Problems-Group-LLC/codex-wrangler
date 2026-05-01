@@ -5,6 +5,33 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-04-30T17:33:10-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: hardened project-local OpenAI Codex install management after npm
+  package behavior changes broke provisioning and upgrade attempts. Replaced
+  generated launcher use of `npx codex` with direct execution of the managed
+  `.codex-local/node_modules/.bin/codex` binary, routed managed npm operations
+  to `.codex-local/.npm-cache`, added `--repair-install` for canonical managed
+  npm artifacts, added post-install Codex binary smoke checks, and expanded
+  inspection and self-test reporting for corrupt metadata, package manifests,
+  lockfiles, missing platform packages, missing `node_modules`, invalid audit
+  JSON, and unsafe managed tree-removal shapes. Documented the repair boundary
+  and operator-owned backup cleanup expectations in `README.md` and
+  `CHANGELOG.md`.
+  Validation: `git diff --check`, `.venv/bin/python
+  scripts/run_black_safe.py --check`, and `.venv/bin/python
+  scripts/run_local_quality_gate.py ruff compileall entropy_check
+  entropy_tripwire_verify pytest` passed with 145 tests green. A live
+  broken-state smoke with corrupt `.codex-local/package-lock.json` and missing
+  `.codex-local/node_modules` now reports classified inspect issues instead
+  of raising a traceback.
+  Notes: the user-local installed `codex-wrangler` command still needs
+  `./install.sh` rerun after this source patch. The intentional break-test
+  backup `.codex-local/node_modules.break-test` remains for operator cleanup
+  after repair.
+
+*
   Completed: 2026-04-19T14:57:30-07:00.
   Owner: Codex.
   Requestor: operator.

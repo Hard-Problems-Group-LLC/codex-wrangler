@@ -10,6 +10,11 @@ and this repository aims to follow
 
 ### Added
 
+- Added `--repair-install` for install and upgrade operations. It removes
+  only managed npm install artifacts under `.codex-local` before reinstalling,
+  so interrupted npm installs can be repaired without deleting `.codex-home`.
+- Added project-local npm cache routing for managed npm operations so install,
+  update, upgrade, audit, and self-test avoid the operator's default npm cache.
 - Added a low-priority meta bug record for the intentionally empty
   condition of having no new bugs to add.
 - Added a local pragmatic edit-method policy and a TheKnowledge ECR to
@@ -33,6 +38,10 @@ and this repository aims to follow
 
 ### Changed
 
+- Changed generated `bin/codex-local` launchers to execute the managed
+  `.codex-local/node_modules/.bin/codex` binary directly instead of using
+  `npx codex`, so a missing local install can no longer fall through to the
+  unrelated legacy registry package named `codex`.
 - Changed the managed reasonable-permissions launcher default from
   `-a never -s workspace-write` to ACP-capable
   `-a on-request -s workspace-write` so Codex can request escalation for
@@ -59,9 +68,27 @@ and this repository aims to follow
   tracked `bin/codex-local` launcher to surface and preserve the managed
   reasonable-permissions state.
 
-
 ### Fixed
 
+- Added local Codex binary smoke checks and inspect/self-test reporting for
+  missing executables, missing platform-package manifests, and mismatched
+  requested, lockfile, and installed package versions, making interrupted npm
+  installs fail closed with an actionable managed-install error.
+- Changed inspect reporting so a corrupt managed `package-lock.json` is
+  surfaced as a classified issue instead of escaping as a Python traceback.
+- Hardened inspect and configuration loading around corrupt managed metadata
+  and package manifests, and documented the intentionally narrow repair scope
+  plus remaining operator-owned backup cleanup boundary.
+- Hardened managed tree removal so files and symlinks at expected directory
+  paths fail closed with explicit errors instead of raw `shutil.rmtree`
+  exceptions.
+- Clarified install summaries so completed npm installs are not reported as
+  still merely required.
+- Clarified dry-run filesystem output so simulated writes and removals are
+  labeled as `Would write`, `Would update`, or `Would remove`.
+- Promoted missing managed `node_modules` from a warning to an inspect issue
+  when the managed package manifest exists, because the local launcher cannot
+  work in that state.
 - Report nonexistent project-root arguments that look like known long-form
   flags without `--` as friendly CLI errors with missing-dash suggestions
   instead of Python tracebacks.

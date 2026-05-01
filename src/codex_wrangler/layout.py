@@ -103,8 +103,17 @@ def read_json_file(path: Path) -> Optional[Dict[str, Any]]:
 
     if not path.exists():
         return None
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise CodexWranglerError(
+            "Failed to parse JSON in {}: {}".format(path, exc)
+        ) from exc
+    except OSError as exc:
+        raise CodexWranglerError(
+            "Failed to read JSON in {}: {}".format(path, exc)
+        ) from exc
     if not isinstance(payload, dict):
         raise CodexWranglerError("Expected JSON object in {}".format(path))
     return payload
@@ -113,7 +122,10 @@ def read_json_file(path: Path) -> Optional[Dict[str, Any]]:
 def read_existing_state(layout: Layout) -> ExistingState:
     """Read any previously managed state available at the target paths."""
 
-    metadata = read_json_file(layout.metadata_path)
+    try:
+        metadata = read_json_file(layout.metadata_path)
+    except CodexWranglerError:
+        metadata = None
     requested_codex_selector = None
     codex_channel = None
     pinned_codex_version = None
@@ -148,13 +160,19 @@ def read_existing_state(layout: Layout) -> ExistingState:
     # Metadata is authoritative when present, but conservative fallback
     # inference keeps update/inspect useful for older managed installs.
     if requested_codex_selector is None:
-        requested_codex_selector = infer_requested_version_from_package_json(
-            layout.local_package_json_path
-        )
+        try:
+            requested_codex_selector = infer_requested_version_from_package_json(
+                layout.local_package_json_path
+            )
+        except CodexWranglerError:
+            requested_codex_selector = None
     if pinned_codex_version is None:
-        pinned_codex_version = infer_installed_version_from_lockfile(
-            layout.local_package_lock_path
-        )
+        try:
+            pinned_codex_version = infer_installed_version_from_lockfile(
+                layout.local_package_lock_path
+            )
+        except CodexWranglerError:
+            pinned_codex_version = None
     if pinned_codex_version is None:
         pinned_codex_version = requested_codex_selector
 

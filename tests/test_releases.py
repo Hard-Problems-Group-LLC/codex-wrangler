@@ -43,7 +43,7 @@ def test_fetch_available_codex_versions_maps_dist_tags(
 ):
     monkeypatch.setattr(
         "codex_wrangler.releases.fetch_codex_dist_tags",
-        lambda npm_name, project_root: {
+        lambda npm_name, project_root, env=None: {
             "latest": "0.30.0",
             "beta": "0.31.0-beta.2",
             "alpha": "0.31.0-alpha.1",
@@ -73,7 +73,7 @@ def test_resolve_install_version_uses_channel_latest_request(
     )
     monkeypatch.setattr(
         "codex_wrangler.releases.fetch_available_codex_versions",
-        lambda npm_name, project_root: {
+        lambda npm_name, project_root, env=None: {
             "stable": "0.30.0",
             "beta": "0.31.0-beta.2",
             "alpha": "0.31.0-alpha.1",

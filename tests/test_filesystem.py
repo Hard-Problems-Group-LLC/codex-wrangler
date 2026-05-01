@@ -3,6 +3,7 @@ import pytest
 from codex_wrangler.filesystem import (
     remove_file_if_managed,
     remove_gitignore_block,
+    remove_tree,
     upsert_gitignore_block,
 )
 from codex_wrangler.layout import build_layout
@@ -126,4 +127,48 @@ def test_remove_file_if_managed_refuses_unmanaged_content_without_force(tmp_path
             force=False,
             dry_run=False,
             label="local README",
+        )
+
+
+def test_remove_tree_refuses_file_path(tmp_path):
+    managed_path = tmp_path / ".codex-local" / "node_modules"
+    managed_path.parent.mkdir()
+    managed_path.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(CodexWranglerError, match="not a directory"):
+        remove_tree(
+            managed_path,
+            label="managed local node_modules",
+            project_root=tmp_path,
+            dry_run=False,
+        )
+
+
+def test_remove_tree_refuses_symlink_path(tmp_path):
+    target_path = tmp_path / "target"
+    target_path.mkdir()
+    managed_path = tmp_path / ".codex-local" / "node_modules"
+    managed_path.parent.mkdir()
+    managed_path.symlink_to(target_path, target_is_directory=True)
+
+    with pytest.raises(CodexWranglerError, match="symbolic link"):
+        remove_tree(
+            managed_path,
+            label="managed local node_modules",
+            project_root=tmp_path,
+            dry_run=False,
+        )
+
+
+def test_remove_tree_refuses_broken_symlink_path(tmp_path):
+    managed_path = tmp_path / ".codex-local" / "node_modules"
+    managed_path.parent.mkdir()
+    managed_path.symlink_to(tmp_path / "missing", target_is_directory=True)
+
+    with pytest.raises(CodexWranglerError, match="symbolic link"):
+        remove_tree(
+            managed_path,
+            label="managed local node_modules",
+            project_root=tmp_path,
+            dry_run=False,
         )

@@ -32,6 +32,7 @@ MISSING_DASH_FLAG_HINTS = {
     "launcher": "--launcher",
     "local-dir": "--local-dir",
     "readme-local": "--readme-local",
+    "repair-install": "--repair-install",
     "set-reasonable-permissions": "--set-reasonable-permissions",
     "selftest": "--selftest",
     "shared-home": "--shared-home",
@@ -264,6 +265,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="Write managed files but skip npm install.",
     )
     parser.add_argument(
+        "--repair-install",
+        action="store_true",
+        help=(
+            "Before npm install, remove only managed npm install artifacts "
+            "under .codex-local: node_modules, package-lock.json, and the "
+            "npx scratch cache. This does not remove .codex-home."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help=(
@@ -317,6 +327,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         parser.error("--upgrade requires --channel <stable|beta|alpha>.")
     if args.upgrade and args.skip_install:
         parser.error("--skip-install is not valid with --upgrade.")
+    if args.repair_install and args.skip_install:
+        parser.error("--repair-install is not valid with --skip-install.")
+    if args.repair_install and (
+        args.inspect or args.selftest or args.uninstall or args.update
+    ):
+        parser.error(
+            "--repair-install is only valid for install and upgrade operations."
+        )
     if (args.set_reasonable_permissions or args.clear_reasonable_permissions) and (
         args.inspect or args.selftest or args.uninstall or args.update
     ):
@@ -392,6 +410,8 @@ def is_reasonable_permissions_reconfigure(
     """Return True when the command should only rewrite managed files."""
 
     if operation != "install":
+        return False
+    if getattr(args, "repair_install", False):
         return False
     if not (args.set_reasonable_permissions or args.clear_reasonable_permissions):
         return False
@@ -509,6 +529,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         version_source=version_source,
         reasonable_permissions_enabled=reasonable_permissions_enabled,
         reconfigure_only=reconfigure_only,
+        repair_install=bool(args.repair_install),
         available_versions=dict(existing.available_versions),
         available_versions_updated_at=existing.available_versions_updated_at,
     )

@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 import os
-from typing import Any, Dict, List
+import platform
+from pathlib import Path
+import sys
+from typing import Any, Dict, List, Optional
 
 from .constants import (
     GITIGNORE_BEGIN,
@@ -20,6 +23,7 @@ from .environment import collect_runtime_diagnostics
 from .filesystem import (
     ensure_managed_directories,
     maybe_remove_empty_parent,
+    require_safe_managed_path,
     remove_file_if_managed,
     remove_gitignore_block,
     remove_tree,
@@ -108,21 +112,199 @@ def require_existing_managed_install(config: Config) -> None:
     )
 
 
+def npm_local_environment(config: Config) -> Dict[str, str]:
+    """Return an environment that keeps npm cache writes project-local."""
+
+    env = dict(os.environ)
+    env["NPM_CONFIG_CACHE"] = str(config.layout.local_dir / ".npm-cache")
+    return env
+
+
+def local_codex_bin_path(config: Config) -> Path:
+    """Return the expected local Codex executable path for this platform."""
+
+    binary_name = "codex.cmd" if os.name == "nt" else "codex"
+    return config.layout.local_node_modules_dir / ".bin" / binary_name
+
+
+def local_codex_package_json_path(config: Config) -> Path:
+    """Return the managed `@openai/codex` package manifest path."""
+
+    return config.layout.local_node_modules_dir / "@openai" / "codex" / "package.json"
+
+
+def expected_codex_platform_package_name() -> Optional[str]:
+    """Return the expected `@openai/codex-*` package for this host."""
+
+    raw_machine = platform.machine().lower()
+    if raw_machine in ("x86_64", "amd64"):
+        arch = "x64"
+    elif raw_machine in ("aarch64", "arm64"):
+        arch = "arm64"
+    else:
+        return None
+
+    if sys.platform.startswith("linux"):
+        family = "linux"
+    elif sys.platform == "darwin":
+        family = "darwin"
+    elif sys.platform in ("win32", "cygwin", "msys"):
+        family = "win32"
+    else:
+        return None
+    return "@openai/codex-{}-{}".format(family, arch)
+
+
+def local_codex_platform_package_json_path(
+    config: Config,
+    package_name: Optional[str],
+) -> Optional[Path]:
+    """Return the expected platform package manifest path when known."""
+
+    if package_name is None:
+        return None
+    scope, name = package_name.split("/", 1)
+    return config.layout.local_node_modules_dir / scope / name / "package.json"
+
+
+def read_package_version(package_json_path: Path) -> Optional[str]:
+    """Read a package.json version string, or return None when unavailable."""
+
+    if not package_json_path.exists():
+        return None
+    try:
+        payload = json.loads(package_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = payload.get("version") if isinstance(payload, dict) else None
+    return version if isinstance(version, str) and version else None
+
+
+def infer_requested_version_with_error(
+    package_json_path: Path,
+) -> tuple[Optional[str], Optional[str]]:
+    """Infer requested Codex version and preserve parse errors for inspection."""
+
+    try:
+        return infer_requested_version_from_package_json(package_json_path), None
+    except CodexWranglerError as exc:
+        return None, str(exc)
+
+
+def infer_lockfile_version_with_error(
+    lockfile_path: Path,
+) -> tuple[Optional[str], Optional[str]]:
+    """Infer installed Codex version and preserve parse errors for inspection."""
+
+    try:
+        return infer_installed_version_from_lockfile(lockfile_path), None
+    except CodexWranglerError as exc:
+        return None, str(exc)
+
+
+def read_metadata_with_error(
+    metadata_path: Path,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Read managed metadata and preserve parse errors for inspection."""
+
+    try:
+        return read_json_file(metadata_path), None
+    except CodexWranglerError as exc:
+        return None, str(exc)
+
+
+def verify_local_codex_binary(config: Config) -> None:
+    """Run a cheap smoke test against the managed local Codex executable."""
+
+    local_codex_bin = local_codex_bin_path(config)
+    if not local_codex_bin.exists():
+        raise CodexWranglerError(
+            "Local Codex executable was not created: {}. The npm install is "
+            "incomplete; rerun the install or upgrade after repairing the "
+            "managed .codex-local directory.".format(local_codex_bin)
+        )
+    if os.name != "nt" and not os.access(local_codex_bin, os.X_OK):
+        raise CodexWranglerError(
+            "Local Codex executable is not executable: {}".format(local_codex_bin)
+        )
+
+    version_result = run_command(
+        [str(local_codex_bin), "--version"],
+        cwd=str(config.project_root),
+        capture_output=True,
+    )
+    version_text = (
+        (version_result.stdout or "") + (version_result.stderr or "")
+    ).strip()
+    if not version_text.startswith("codex-cli "):
+        raise CodexWranglerError(
+            "Local Codex executable did not report a Codex CLI version: {}".format(
+                version_text or "<no output>"
+            )
+        )
+
+
+def remove_managed_install_file(config: Config, path: Path, label: str) -> bool:
+    """Remove one managed npm artifact file after path safety checks."""
+
+    if not path.exists():
+        return False
+    if not path.is_file():
+        raise CodexWranglerError(
+            "Expected {} to be a file, but found something else: {}".format(
+                label,
+                path,
+            )
+        )
+    require_safe_managed_path(path, config.project_root, label)
+    action = "Would remove" if config.dry_run else "Removing"
+    eprint("[codex-wrangler] {} {}: {}".format(action, label, path))
+    if config.dry_run:
+        return True
+    path.unlink()
+    return True
+
+
+def repair_managed_npm_install(config: Config) -> None:
+    """Remove managed npm install artifacts before a clean reinstall."""
+
+    remove_tree(
+        config.layout.local_node_modules_dir,
+        label="managed local node_modules",
+        project_root=config.project_root,
+        dry_run=config.dry_run,
+    )
+    remove_managed_install_file(
+        config,
+        config.layout.local_package_lock_path,
+        label="managed local package-lock",
+    )
+    remove_tree(
+        config.layout.local_dir / ".npm-cache" / "_npx",
+        label="managed local npx scratch cache",
+        project_root=config.project_root,
+        dry_run=config.dry_run,
+    )
+
+
 def install_like_operation(config: Config) -> int:
     """Shared implementation for install and upgrade-style operations."""
 
     if config.reconfigure_only:
         resolved_config = config
     else:
-        npm_name, npx_name = detect_npm_binaries()
+        npm_name, _ = detect_npm_binaries()
         ensure_command_exists("node")
         ensure_command_exists(npm_name)
-        ensure_command_exists(npx_name)
 
         if config.operation == "upgrade":
             resolved_config = resolve_upgrade_version(config)
         else:
-            resolved_config = resolve_install_version(config, npm_name)
+            resolved_config = resolve_install_version(
+                config,
+                npm_name,
+                env=npm_local_environment(config),
+            )
 
     eprint(
         "[codex-wrangler] Target project root: {}".format(resolved_config.project_root)
@@ -159,6 +341,13 @@ def install_like_operation(config: Config) -> int:
             "updates managed launcher state."
         )
     elif resolved_config.dry_run:
+        if resolved_config.repair_install:
+            repair_managed_npm_install(resolved_config)
+        eprint(
+            "[codex-wrangler] Would set: NPM_CONFIG_CACHE={}".format(
+                npm_local_environment(resolved_config)["NPM_CONFIG_CACHE"]
+            )
+        )
         eprint(
             "[codex-wrangler] Would run: {} install --prefix {}".format(
                 npm_name, resolved_config.layout.local_dir
@@ -167,10 +356,14 @@ def install_like_operation(config: Config) -> int:
     elif resolved_config.skip_install:
         eprint("[codex-wrangler] Skipping npm install by request")
     else:
+        if resolved_config.repair_install:
+            repair_managed_npm_install(resolved_config)
         run_command(
             [npm_name, "install", "--prefix", str(resolved_config.layout.local_dir)],
             cwd=str(resolved_config.project_root),
+            env=npm_local_environment(resolved_config),
         )
+        verify_local_codex_binary(resolved_config)
 
     print(build_install_summary(resolved_config))
     return 0
@@ -181,12 +374,15 @@ def update_operation(config: Config) -> int:
 
     require_existing_managed_install(config)
 
-    npm_name, npx_name = detect_npm_binaries()
+    npm_name, _ = detect_npm_binaries()
     ensure_command_exists("node")
     ensure_command_exists(npm_name)
-    ensure_command_exists(npx_name)
 
-    available_versions = fetch_available_codex_versions(npm_name, config.project_root)
+    available_versions = fetch_available_codex_versions(
+        npm_name,
+        config.project_root,
+        env=npm_local_environment(config),
+    )
     updated_config = replace(
         config,
         available_versions=available_versions,
@@ -238,7 +434,9 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
     """Collect a conservative JSON inspection report for the target project."""
 
     npm_name, npx_name = detect_npm_binaries()
-    metadata = read_json_file(config.layout.metadata_path)
+    metadata, metadata_parse_error = read_metadata_with_error(
+        config.layout.metadata_path
+    )
     runtime_environment = collect_runtime_diagnostics(
         config.project_root,
         config.shared_home,
@@ -254,6 +452,19 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
     )
     gitignore_managed_block_present = (
         GITIGNORE_BEGIN in gitignore_text and GITIGNORE_END in gitignore_text
+    )
+    local_codex_bin = local_codex_bin_path(config)
+    local_codex_package_json = local_codex_package_json_path(config)
+    expected_platform_package = expected_codex_platform_package_name()
+    local_platform_package_json = local_codex_platform_package_json_path(
+        config,
+        expected_platform_package,
+    )
+    requested_codex_version, local_package_json_parse_error = (
+        infer_requested_version_with_error(config.layout.local_package_json_path)
+    )
+    installed_lockfile_version, local_package_lock_parse_error = (
+        infer_lockfile_version_with_error(config.layout.local_package_lock_path)
     )
 
     report = {
@@ -283,6 +494,13 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
             "readme_local": str(config.layout.readme_path),
             "local_package_json": str(config.layout.local_package_json_path),
             "local_package_lock": str(config.layout.local_package_lock_path),
+            "local_codex_bin": str(local_codex_bin),
+            "local_codex_package_json": str(local_codex_package_json),
+            "local_codex_platform_package_json": (
+                str(local_platform_package_json)
+                if local_platform_package_json is not None
+                else None
+            ),
             "metadata": str(config.layout.metadata_path),
             "gitignore": str(config.layout.gitignore_path),
         },
@@ -292,7 +510,20 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
             "local_package_json_exists": config.layout.local_package_json_path.exists(),
             "local_package_lock_exists": config.layout.local_package_lock_path.exists(),
             "node_modules_exists": config.layout.local_node_modules_dir.exists(),
+            "local_codex_bin_exists": local_codex_bin.exists(),
+            "local_codex_bin_executable": (
+                os.access(local_codex_bin, os.X_OK)
+                if local_codex_bin.exists()
+                else False
+            ),
+            "expected_codex_platform_package": expected_platform_package,
+            "local_codex_platform_package_json_exists": (
+                local_platform_package_json.exists()
+                if local_platform_package_json is not None
+                else False
+            ),
             "metadata_exists": metadata is not None,
+            "metadata_parse_error": metadata_parse_error,
             "metadata": metadata,
             "available_versions": dict(config.available_versions),
             "available_versions_updated_at": config.available_versions_updated_at,
@@ -309,16 +540,18 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
             "readme_matches_expected": readme_matches_expected(config),
             "gitignore_exists": config.layout.gitignore_path.exists(),
             "gitignore_managed_block_present": gitignore_managed_block_present,
-            "requested_codex_version_in_package_json": (
-                infer_requested_version_from_package_json(
-                    config.layout.local_package_json_path
-                )
+            "requested_codex_version_in_package_json": requested_codex_version,
+            "local_package_json_parse_error": local_package_json_parse_error,
+            "installed_codex_version_in_package_dir": (
+                read_package_version(local_codex_package_json)
             ),
-            "installed_codex_version_in_lockfile": (
-                infer_installed_version_from_lockfile(
-                    config.layout.local_package_lock_path
-                )
+            "installed_codex_platform_package_version": (
+                read_package_version(local_platform_package_json)
+                if local_platform_package_json is not None
+                else None
             ),
+            "installed_codex_version_in_lockfile": installed_lockfile_version,
+            "local_package_lock_parse_error": local_package_lock_parse_error,
             "node_found": runtime_environment["resolved_commands"]["node"]["found"],
             "npm_found": runtime_environment["resolved_commands"]["npm"]["found"],
             "npx_found": runtime_environment["resolved_commands"]["npx"]["found"],
@@ -333,9 +566,42 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
 
     if not state["git_repository"]:
         warnings.append("Target project root does not appear to be a git repository.")
+    if state["metadata_parse_error"]:
+        issues.append(
+            "Managed metadata could not be parsed: {}".format(
+                state["metadata_parse_error"]
+            )
+        )
+    if state["local_package_json_parse_error"]:
+        issues.append(
+            "Managed package.json could not be parsed: {}".format(
+                state["local_package_json_parse_error"]
+            )
+        )
+    if state["local_package_lock_parse_error"]:
+        issues.append(
+            "Managed package-lock.json could not be parsed: {}".format(
+                state["local_package_lock_parse_error"]
+            )
+        )
     if state["local_package_json_exists"] and not state["node_modules_exists"]:
-        warnings.append(
+        issues.append(
             "Managed package manifest exists, but node_modules is missing. The install may be incomplete."
+        )
+    if state["node_modules_exists"] and not state["local_codex_bin_exists"]:
+        issues.append(
+            "Managed node_modules exists, but the local Codex executable is missing."
+        )
+    if state["local_codex_bin_exists"] and not state["local_codex_bin_executable"]:
+        issues.append("Local Codex executable exists but is not executable.")
+    if (
+        state["expected_codex_platform_package"]
+        and state["node_modules_exists"]
+        and not state["local_codex_platform_package_json_exists"]
+    ):
+        issues.append(
+            "Expected platform package {} is missing its package.json under "
+            "node_modules.".format(state["expected_codex_platform_package"])
         )
     if state["launcher_exists"] and not state["launcher_matches_expected"]:
         warnings.append(
@@ -360,8 +626,32 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
         and selector_alignment["signals_present"]
     ):
         warnings.append(selector_alignment["summary"])
-    if not state["node_found"] or not state["npm_found"] or not state["npx_found"]:
-        issues.append("Required node/npm/npx commands are not available in PATH.")
+    requested_codex_version = state["requested_codex_version_in_package_json"]
+    installed_package_dir_version = state["installed_codex_version_in_package_dir"]
+    installed_lockfile_version = state["installed_codex_version_in_lockfile"]
+    if (
+        requested_codex_version
+        and installed_package_dir_version
+        and requested_codex_version != installed_package_dir_version
+    ):
+        issues.append(
+            "Managed package.json requests @openai/codex {}, but node_modules "
+            "contains {}.".format(
+                requested_codex_version,
+                installed_package_dir_version,
+            )
+        )
+    if (
+        requested_codex_version
+        and installed_lockfile_version
+        and requested_codex_version != installed_lockfile_version
+    ):
+        issues.append(
+            "Managed package.json requests @openai/codex {}, but package-lock "
+            "records {}.".format(requested_codex_version, installed_lockfile_version)
+        )
+    if not state["node_found"] or not state["npm_found"]:
+        issues.append("Required node/npm commands are not available in PATH.")
     if metadata and metadata.get("project_root") != str(config.project_root):
         issues.append(
             "Managed metadata project_root does not match the inspected project root."
@@ -482,9 +772,14 @@ def selftest_operation(config: Config) -> int:
         "npm command is not available in PATH",
     )
     record(
-        "npx_command_found",
-        bool(state["npx_found"]),
-        "npx command is not available in PATH",
+        "local_codex_bin_exists",
+        bool(state.get("local_codex_bin_exists")),
+        "local Codex executable is missing from node_modules/.bin",
+    )
+    record(
+        "local_codex_bin_executable",
+        bool(state.get("local_codex_bin_executable")),
+        "local Codex executable is not executable",
     )
     selector_alignment = runtime_environment["selector_alignment"]
     record(
@@ -538,22 +833,31 @@ def selftest_operation(config: Config) -> int:
                 [npm_name, "audit", "--prefix", str(config.layout.local_dir), "--json"],
                 cwd=str(config.project_root),
                 capture_output=True,
+                env=npm_local_environment(config),
             )
         except CodexWranglerError as exc:
             record("npm_audit_clean", False, str(exc))
         else:
-            audit_payload = json.loads(audit_result.stdout)
-            vulnerabilities = audit_payload.get("metadata", {}).get(
-                "vulnerabilities", {}
-            )
-            total_vulnerabilities = vulnerabilities.get("total")
-            record(
-                "npm_audit_clean",
-                total_vulnerabilities == 0,
-                "npm audit reported {} total vulnerabilities".format(
-                    total_vulnerabilities
-                ),
-            )
+            try:
+                audit_payload = json.loads(audit_result.stdout or "")
+            except json.JSONDecodeError as exc:
+                record(
+                    "npm_audit_clean",
+                    False,
+                    "npm audit returned invalid JSON: {}".format(exc),
+                )
+            else:
+                vulnerabilities = audit_payload.get("metadata", {}).get(
+                    "vulnerabilities", {}
+                )
+                total_vulnerabilities = vulnerabilities.get("total")
+                record(
+                    "npm_audit_clean",
+                    total_vulnerabilities == 0,
+                    "npm audit reported {} total vulnerabilities".format(
+                        total_vulnerabilities
+                    ),
+                )
     else:
         record("npm_audit_clean", False, "npm command is not available in PATH")
 

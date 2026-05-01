@@ -7,7 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
-from typing import Sequence, Tuple
+from typing import Mapping, Optional, Sequence, Tuple
 
 from .models import CodexWranglerError
 
@@ -26,7 +26,7 @@ def utc_now_iso() -> str:
 def eprint(message: str) -> None:
     """Send operator-facing status output to stderr."""
 
-    print(message, file=sys.stderr)
+    print(message, file=sys.stderr, flush=True)
 
 
 def detect_npm_binaries() -> Tuple[str, str]:
@@ -51,15 +51,23 @@ def run_command(
     command: Sequence[str],
     cwd: str,
     capture_output: bool = False,
+    env: Optional[Mapping[str, str]] = None,
 ) -> subprocess.CompletedProcess:
     """Run a subprocess with explicit error reporting."""
 
+    if env is not None and "NPM_CONFIG_CACHE" in env:
+        eprint(
+            "[codex-wrangler] Environment: NPM_CONFIG_CACHE={}".format(
+                env["NPM_CONFIG_CACHE"]
+            )
+        )
     eprint("[codex-wrangler] Running: {}".format(" ".join(command)))
     completed = subprocess.run(
         list(command),
         cwd=cwd,
         check=False,
         capture_output=capture_output,
+        env=dict(env) if env is not None else None,
         text=True,
     )
     if completed.returncode != 0:

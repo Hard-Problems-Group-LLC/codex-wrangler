@@ -187,6 +187,39 @@ def test_config_from_args_update_falls_back_to_existing_managed_files(tmp_path):
     assert config.version_source == "existing managed files"
 
 
+def test_config_from_args_inspect_tolerates_corrupt_managed_json(tmp_path):
+    local_dir = tmp_path / ".codex-local"
+    local_dir.mkdir()
+    (local_dir / ".codex-wrangler.json").write_text("{not json\n", encoding="utf-8")
+    (local_dir / "package.json").write_text(
+        build_local_package_json("0.31.0-beta.2"),
+        encoding="utf-8",
+    )
+    (local_dir / "package-lock.json").write_text("{not json\n", encoding="utf-8")
+
+    config = config_from_args(parse_args(["--inspect", str(tmp_path)]))
+
+    assert config.operation == "inspect"
+    assert config.codex_selector == "0.31.0-beta.2"
+    assert config.codex_channel == "beta"
+    assert config.codex_version == "0.31.0-beta.2"
+
+
+def test_config_from_args_inspect_tolerates_fully_corrupt_managed_state(tmp_path):
+    local_dir = tmp_path / ".codex-local"
+    local_dir.mkdir()
+    (local_dir / ".codex-wrangler.json").write_text("{not json\n", encoding="utf-8")
+    (local_dir / "package.json").write_text("{not json\n", encoding="utf-8")
+    (local_dir / "package-lock.json").write_text("{not json\n", encoding="utf-8")
+
+    config = config_from_args(parse_args(["--inspect", str(tmp_path)]))
+
+    assert config.operation == "inspect"
+    assert config.codex_selector == DEFAULT_INSTALL_CODEX_SELECTOR
+    assert config.codex_channel == DEFAULT_INSTALL_CODEX_CHANNEL
+    assert config.codex_version == DEFAULT_INSTALL_CODEX_SELECTOR
+
+
 def test_config_from_args_toggle_only_preserves_existing_selection(tmp_path):
     local_dir = tmp_path / ".codex-local"
     local_dir.mkdir()

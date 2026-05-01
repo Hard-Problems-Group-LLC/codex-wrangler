@@ -48,6 +48,7 @@ class Config:
     version_source: str
     reasonable_permissions_enabled: bool = False
     reconfigure_only: bool = False
+    repair_install: bool = False
     available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
     available_versions_updated_at: Optional[str] = None
 

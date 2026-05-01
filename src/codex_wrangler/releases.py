@@ -6,7 +6,7 @@ from dataclasses import replace
 import json
 from pathlib import Path
 import re
-from typing import Dict, Optional
+from typing import Dict, Mapping, Optional
 
 from .constants import (
     CODEX_CHANNELS,
@@ -97,13 +97,18 @@ def parse_dist_tags(payload: str) -> Dict[str, str]:
     return tags
 
 
-def fetch_codex_dist_tags(npm_name: str, project_root: Path) -> Dict[str, str]:
+def fetch_codex_dist_tags(
+    npm_name: str,
+    project_root: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> Dict[str, str]:
     """Query npm for the published dist-tags of the Codex package."""
 
     completed = run_command(
         [npm_name, "view", CODEX_PACKAGE_NAME, "dist-tags", "--json"],
         cwd=str(project_root),
         capture_output=True,
+        env=env,
     )
     return parse_dist_tags(completed.stdout or "")
 
@@ -111,10 +116,11 @@ def fetch_codex_dist_tags(npm_name: str, project_root: Path) -> Dict[str, str]:
 def fetch_available_codex_versions(
     npm_name: str,
     project_root: Path,
+    env: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Optional[str]]:
     """Return the locally tracked latest versions for the supported channels."""
 
-    dist_tags = fetch_codex_dist_tags(npm_name, project_root)
+    dist_tags = fetch_codex_dist_tags(npm_name, project_root, env=env)
     return {
         "stable": dist_tags.get("latest"),
         "beta": dist_tags.get("beta"),
@@ -158,10 +164,18 @@ def resolve_explicit_selector_version(
     return resolved_version
 
 
-def resolve_install_version(config: Config, npm_name: str) -> Config:
+def resolve_install_version(
+    config: Config,
+    npm_name: str,
+    env: Optional[Mapping[str, str]] = None,
+) -> Config:
     """Resolve an install-time selector into an exact version and catalog snapshot."""
 
-    available_versions = fetch_available_codex_versions(npm_name, config.project_root)
+    available_versions = fetch_available_codex_versions(
+        npm_name,
+        config.project_root,
+        env=env,
+    )
     resolved_version = resolve_explicit_selector_version(
         config.codex_selector,
         config.codex_channel,

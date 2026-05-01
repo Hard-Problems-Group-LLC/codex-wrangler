@@ -249,6 +249,27 @@ codex-wrangler --upgrade --channel beta .
 codex-wrangler --upgrade --channel alpha .
 ```
 
+If a prior npm install was interrupted and left `.codex-local/node_modules`,
+`.codex-local/package-lock.json`, or `.codex-local/.npm-cache/_npx`
+inconsistent, use the explicit repair mode. It removes only managed npm
+install artifacts under `.codex-local` before reinstalling with
+`NPM_CONFIG_CACHE` pointed at `.codex-local/.npm-cache`; it does not remove
+`.codex-home`:
+
+```bash
+codex-wrangler --upgrade --channel stable --repair-install .
+```
+
+Repair mode deliberately targets only canonical managed artifact names:
+`.codex-local/node_modules`, `.codex-local/package-lock.json`, and
+`.codex-local/.npm-cache/_npx`. It will not remove ad hoc operator backups
+such as `.codex-local/node_modules.break-test`. If `--inspect` reports corrupt
+managed metadata, package manifests, or lockfiles, treat that as damaged state
+that should be repaired or reviewed before relying on the local launcher.
+Plain `npm install` can sometimes self-heal interrupted installs; repair mode
+exists for cases where the safer path is to discard the managed npm install
+artifacts and recreate them from the managed manifest.
+
 Upgrade to one exact version:
 
 ```bash
@@ -309,11 +330,18 @@ artifacts inside that target repository:
 
 `codex-wrangler` localizes the `@openai/codex` package install under
 `.codex-local/` and, by default, localizes Codex state under `.codex-home/`.
-It does not currently install or pin the `node`, `npm`, or `npx` executables
-used by `bin/codex-local`.
+It does not currently install or pin the `node` runtime used by
+`bin/codex-local`, or the `npm` executable used by maintenance commands such
+as install, update, upgrade, audit, and self-test. Managed npm operations set
+`NPM_CONFIG_CACHE` to `.codex-local/.npm-cache` so package installs and npm
+scratch/cache writes stay inside the target project.
 
-The generated launcher runs `npx --prefix "$local_prefix" codex "$@"`, so the
-Node.js runtime family comes from the shell `PATH` that launched the command.
+The generated launcher executes
+`.codex-local/node_modules/.bin/codex "$@"` directly. It intentionally does
+not use `npx codex`, because npm can otherwise fall back to a different
+registry package named `codex` when the managed local binary is missing or
+damaged. The Node.js runtime family still comes from the shell `PATH` that
+launched the command.
 
 ## Trust and Install Scope
 
@@ -342,11 +370,11 @@ sandboxes they launch closer to the same interpreter view as the rest of the
 project.
 
 The generated launcher now performs a cheap startup preflight before it starts
-Codex. By default it warns when required `node`/`npm`/`npx` commands are
-missing or when a checked-in Node.js selector such as `.nvmrc`,
-`.node-version`, or `.tool-versions` appears inconsistent with the active
-shell. Use `CODEX_LOCAL_PREFLIGHT=warn`, `strict`, or `off` to control that
-behavior.
+Codex. It always refuses to launch when `node` or the managed local Codex
+binary is unavailable. By default it also warns when a checked-in Node.js
+selector such as `.nvmrc`, `.node-version`, or `.tool-versions` appears
+inconsistent with the active shell. Use `CODEX_LOCAL_PREFLIGHT=warn`,
+`strict`, or `off` to control the selector-warning behavior.
 
 The launcher also redirects `HOME` and related `XDG_*` paths into
 `.codex-home/` unless `--shared-home` is used. That isolation keeps Codex
@@ -358,7 +386,9 @@ bootstrap feature is added explicitly.
 `codex-wrangler --inspect` and `--selftest` now also report the resolved
 `node`, `npm`, and `npx` paths and versions, detected checked-in Node.js
 selectors, any root `package.json` package-manager declaration, and the
-effective `HOME` and `XDG_*` paths the launcher will expose.
+effective `HOME` and `XDG_*` paths the launcher will expose. They also report
+whether the managed local Codex binary exists and whether the requested,
+lockfile, and installed package versions agree.
 
 ## Safety Notes
 

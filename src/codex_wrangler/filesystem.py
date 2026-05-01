@@ -57,7 +57,8 @@ def upsert_gitignore_block(
         eprint("[codex-wrangler] .gitignore block already up to date")
         return
 
-    eprint("[codex-wrangler] Updating {}".format(gitignore_path))
+    action = "Would update" if dry_run else "Updating"
+    eprint("[codex-wrangler] {} {}".format(action, gitignore_path))
     if dry_run:
         return
 
@@ -85,7 +86,8 @@ def remove_gitignore_block(gitignore_path: Path, dry_run: bool) -> bool:
     replacement = existing_text[:begin_index] + existing_text[end_index:]
     replacement = replacement.rstrip() + ("\n" if replacement.strip() else "")
 
-    eprint("[codex-wrangler] Removing managed block from {}".format(gitignore_path))
+    action = "Would remove" if dry_run else "Removing"
+    eprint("[codex-wrangler] {} managed block from {}".format(action, gitignore_path))
     if dry_run:
         return True
 
@@ -122,7 +124,8 @@ def write_text_file(
                 "Refusing to overwrite existing file without --force: {}".format(path)
             )
 
-    eprint("[codex-wrangler] Writing: {}".format(path))
+    action = "Would write" if dry_run else "Writing"
+    eprint("[codex-wrangler] {}: {}".format(action, path))
     if dry_run:
         return
 
@@ -135,7 +138,8 @@ def write_text_file(
 def write_metadata(path: Path, payload: Dict[str, object], dry_run: bool) -> None:
     """Write the managed metadata file as pretty JSON."""
 
-    eprint("[codex-wrangler] Writing metadata: {}".format(path))
+    action = "Would write" if dry_run else "Writing"
+    eprint("[codex-wrangler] {} metadata: {}".format(action, path))
     if dry_run:
         return
 
@@ -204,7 +208,7 @@ def remove_file_if_managed(
 ) -> bool:
     """Remove a generated file only when ownership can be proven."""
 
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return False
     if not path.is_file():
         raise CodexWranglerError(
@@ -223,7 +227,8 @@ def remove_file_if_managed(
             "expected generated content. Use --force to override.".format(path)
         )
 
-    eprint("[codex-wrangler] Removing {}: {}".format(label, path))
+    action = "Would remove" if dry_run else "Removing"
+    eprint("[codex-wrangler] {} {}: {}".format(action, label, path))
     if dry_run:
         return True
     path.unlink()
@@ -233,11 +238,26 @@ def remove_file_if_managed(
 def remove_tree(path: Path, label: str, project_root: Path, dry_run: bool) -> bool:
     """Remove a managed directory tree after path safety checks."""
 
-    if not path.exists():
+    if not path.exists() and not path.is_symlink():
         return False
 
     require_safe_managed_path(path, project_root, label)
-    eprint("[codex-wrangler] Removing {}: {}".format(label, path))
+    if path.is_symlink():
+        raise CodexWranglerError(
+            "{} is a symbolic link and will not be removed automatically: {}".format(
+                label,
+                path,
+            )
+        )
+    if not path.is_dir():
+        raise CodexWranglerError(
+            "{} is not a directory and will not be removed automatically: {}".format(
+                label,
+                path,
+            )
+        )
+    action = "Would remove" if dry_run else "Removing"
+    eprint("[codex-wrangler] {} {}: {}".format(action, label, path))
     if dry_run:
         return True
 
@@ -254,7 +274,8 @@ def maybe_remove_empty_parent(path: Path, stop_at: Path, dry_run: bool) -> None:
             next(current.iterdir())
             break
         except StopIteration:
-            eprint("[codex-wrangler] Removing empty directory: {}".format(current))
+            action = "Would remove" if dry_run else "Removing"
+            eprint("[codex-wrangler] {} empty directory: {}".format(action, current))
             if not dry_run:
                 current.rmdir()
             current = current.parent
