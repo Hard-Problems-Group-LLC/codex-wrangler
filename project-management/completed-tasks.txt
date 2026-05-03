@@ -5,6 +5,22 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-05-03T00:07:59-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: updated the `TheKnowledge` submodule from `dcf9e09` to `76202ee`
+  through the managed helper, refreshed the managed AGENTS footer guidance,
+  and revalidated the checkout on the updated baseline while preserving the
+  repo's existing bootstrap contract. The managed refresh briefly proposed
+  replacing repo-specific bootstrap behavior, but that diff was kept out of
+  the final tree because the current committed implementation remains the
+  intended local contract.
+  Validation: `.venv/bin/python -m pytest tests/test_dev_setup.py
+  tests/test_bootstrap.py tests/test_entrypoints.py` passed, and
+  `.venv/bin/python scripts/run_local_quality_gate.py` passed with 150 tests
+  green after the submodule update.
+
+*
   Completed: 2026-05-02T22:58:30-07:00.
   Owner: Codex.
   Requestor: operator.

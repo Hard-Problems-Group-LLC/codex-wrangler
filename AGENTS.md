@@ -75,6 +75,19 @@ project needs behavior different from TheKnowledge's own repository setup. -->
   starter documents, and generated guidance unless a file is machine-consumed,
   intentionally extensionless, or temporarily kept in a legacy format during
   an explicit migration.
+- Do not name external client projects in TheKnowledge-bound records,
+  proposals, bugs, feedback, or generated guidance. Use `an external project`
+  or another operator-approved generic phrase instead.
+- Keep any restricted-name source list local and untracked, such as
+  `.theknowledge-restricted-names.local` or an out-of-tree equivalent, and do
+  not flag the list itself during validation.
+- If a restricted name appears as a directory or filename component, stop and
+  ask the operator how to resolve the path before renaming, deleting,
+  redacting, or moving anything.
+- Imported ECR holding directories must use project-neutral names such as
+  `imported-ecrs/`, not source-project names. Keep imported ECR basenames
+  unchanged as source-facing identifiers, and track accepted or implemented
+  files in the active TheKnowledge `accepted-ecrs-list.md`.
 - Bootstrap, setup, prerequisite, and environment-selection code should
   follow Python 3.9 best practices unless a higher floor is documented.
 - Normal runtime, automation, test, and developer-tooling code should follow

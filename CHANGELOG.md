@@ -81,6 +81,9 @@ and this repository aims to follow
 - Ignore `.local/` in the managed Codex gitignore block and extend the rendering/filesystem tests to enforce it.
 - Repair managed bootstrap/runtime selection so explicit fresh 3.12 interpreters can create `.venv`, route hook-install fallback through the parent repo, and bound automatic `direnv` download hangs with an explicit timeout plus regression coverage.
 
+- Update the `TheKnowledge` submodule from `dcf9e09` to `76202ee` and adopt the refreshed managed AGENTS footer guidance.
+
+
 
 ### Fixed
 
