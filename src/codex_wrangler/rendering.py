@@ -70,6 +70,7 @@ def build_gitignore_block(layout: Layout) -> str:
         "{}/".format(layout.local_dir_relative.rstrip("/")),
         "{}/".format(layout.codex_home_relative.rstrip("/")),
         ".codex",
+        ".local/",
         layout.launcher_relative,
         layout.readme_relative,
         GITIGNORE_END,

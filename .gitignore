@@ -212,6 +212,7 @@ __marimo__/
 .codex-local/
 .codex-home/
 .codex
+.local/
 bin/codex-local
 README-LOCAL-Start-Codex.md
 # END managed by codex-wrangler

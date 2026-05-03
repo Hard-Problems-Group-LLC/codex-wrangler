@@ -56,6 +56,7 @@ STAGE1_MARKER = "THEKNOWLEDGE_MANAGED_INSTALL_STAGE1"
 REPO_SCOPE = "repo"
 USER_SCOPE = "user"
 SYSTEM_SCOPE = "system"
+DIRENV_DOWNLOAD_TIMEOUT_SECONDS = 30
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -409,7 +410,10 @@ def install_git_hooks(venv_python: Path) -> None:
     )
     for installer in candidates:
         if installer.is_file():
-            run([str(venv_python), str(installer)], cwd=REPO_ROOT)
+            command = [str(venv_python), str(installer)]
+            if installer.parent.parent.name == "TheKnowledge":
+                command.extend(["--repo-root", str(REPO_ROOT)])
+            run(command, cwd=REPO_ROOT)
             return
 
 
@@ -433,8 +437,17 @@ def ensure_direnv(auto_install: bool, user_home: Path) -> Path:
     url = "https://github.com/direnv/direnv/releases/latest/download/{}".format(
         artifact_name
     )
-    with urlopen(url) as response:
-        local_direnv.write_bytes(response.read())
+    try:
+        with urlopen(url, timeout=DIRENV_DOWNLOAD_TIMEOUT_SECONDS) as response:
+            local_direnv.write_bytes(response.read())
+    except OSError as error:
+        raise RuntimeError(
+            "Failed to download direnv from {} within {} seconds: {}".format(
+                url,
+                DIRENV_DOWNLOAD_TIMEOUT_SECONDS,
+                error,
+            )
+        ) from error
     local_direnv.chmod(
         local_direnv.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
     )

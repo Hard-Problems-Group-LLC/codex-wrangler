@@ -59,6 +59,7 @@ def test_build_gitignore_block_includes_local_readme(tmp_path, config_factory):
     block = build_gitignore_block(config.layout)
     assert "Local Codex package, home, wrapper, and sentinel artifacts." in block
     assert ".codex" in block
+    assert ".local/" in block
     assert "bin/codex-local" in block
     assert "README-LOCAL-Start-Codex.md" in block
 

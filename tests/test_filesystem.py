@@ -37,6 +37,7 @@ def test_upsert_gitignore_block_replaces_managed_block_without_trailing_newline(
     assert text.count("# BEGIN managed by codex-wrangler") == 1
     assert "README-LOCAL-Start-Codex.md" in text
     assert ".codex" in text
+    assert ".local/" in text
     assert "bin/codex-local" in text
 
 
@@ -60,6 +61,7 @@ def test_upsert_gitignore_block_creates_missing_file(tmp_path):
     assert text.startswith("# BEGIN managed by codex-wrangler\n")
     assert "# Local Codex package, home, wrapper, and sentinel artifacts." in text
     assert ".codex\n" in text
+    assert ".local/\n" in text
     assert "bin/codex-local\n" in text
 
 

@@ -78,6 +78,10 @@ and this repository aims to follow
   tracked `bin/codex-local` launcher to surface and preserve the managed
   reasonable-permissions state.
 
+- Ignore `.local/` in the managed Codex gitignore block and extend the rendering/filesystem tests to enforce it.
+- Repair managed bootstrap/runtime selection so explicit fresh 3.12 interpreters can create `.venv`, route hook-install fallback through the parent repo, and bound automatic `direnv` download hangs with an explicit timeout plus regression coverage.
+
+
 ### Fixed
 
 - Added local Codex binary smoke checks and inspect/self-test reporting for
