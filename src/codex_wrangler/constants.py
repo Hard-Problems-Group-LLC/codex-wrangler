@@ -22,6 +22,19 @@ DEFAULT_HOME_DIR = ".codex-home"
 DEFAULT_LAUNCHER_RELATIVE_PATH = Path("bin") / "codex-local"
 DEFAULT_README_FILENAME = "README-LOCAL-Start-Codex.md"
 METADATA_FILENAME = ".codex-wrangler.json"
+DEFAULT_NPM_TIMEOUT_SECONDS = 300
+DEFAULT_NPM_INSTALL_LOGLEVEL = "http"
+NPM_INSTALL_LOGLEVELS = (
+    "silent",
+    "error",
+    "warn",
+    "notice",
+    "http",
+    "timing",
+    "info",
+    "verbose",
+    "silly",
+)
 
 GITIGNORE_BEGIN = "# BEGIN managed by codex-wrangler"
 GITIGNORE_END = "# END managed by codex-wrangler"

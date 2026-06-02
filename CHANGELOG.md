@@ -10,6 +10,8 @@ and this repository aims to follow
 
 ### Added
 
+- Added a bounded managed npm operations specification and regression tests
+  for npm timeout reporting plus install command wiring.
 - Added a TheKnowledge ECR and executable companion proposed
   `install-stage-2.py` draft for preserving explicit user-home targeting and
   local managed-file overlays during submodule managed-starter refreshes.
@@ -44,6 +46,10 @@ and this repository aims to follow
 
 ### Changed
 
+- Changed managed Codex package installs to run with a 300-second default npm
+  timeout, disable optional npm audit/funding/update-notifier/spinner checks,
+  emit HTTP fetch and foreground lifecycle-script logs for troubleshooting,
+  and expose `--npm-timeout-seconds` plus `--npm-install-loglevel` controls.
 - Updated the TheKnowledge submodule to `dcf9e09` and refreshed the managed
   AGENTS footer guidance for Markdown proposal records and ACP scope while
   preserving the project-local `install-stage-2.py` override after validation
@@ -87,6 +93,11 @@ and this repository aims to follow
 
 ### Fixed
 
+- Fixed managed npm subprocesses so install, version lookup, update, and
+  self-test audit calls fail with clear timeout diagnostics instead of
+  waiting indefinitely.
+- Extended repair install cleanup to remove managed npm cache temp files so
+  interrupted tarball extraction can be retried cleanly.
 - Added local Codex binary smoke checks and inspect/self-test reporting for
   missing executables, missing platform-package manifests, and mismatched
   requested, lockfile, and installed package versions, making interrupted npm

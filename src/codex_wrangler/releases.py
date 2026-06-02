@@ -101,6 +101,7 @@ def fetch_codex_dist_tags(
     npm_name: str,
     project_root: Path,
     env: Optional[Mapping[str, str]] = None,
+    timeout_seconds: Optional[int] = None,
 ) -> Dict[str, str]:
     """Query npm for the published dist-tags of the Codex package."""
 
@@ -109,6 +110,7 @@ def fetch_codex_dist_tags(
         cwd=str(project_root),
         capture_output=True,
         env=env,
+        timeout_seconds=timeout_seconds,
     )
     return parse_dist_tags(completed.stdout or "")
 
@@ -117,10 +119,16 @@ def fetch_available_codex_versions(
     npm_name: str,
     project_root: Path,
     env: Optional[Mapping[str, str]] = None,
+    timeout_seconds: Optional[int] = None,
 ) -> Dict[str, Optional[str]]:
     """Return the locally tracked latest versions for the supported channels."""
 
-    dist_tags = fetch_codex_dist_tags(npm_name, project_root, env=env)
+    dist_tags = fetch_codex_dist_tags(
+        npm_name,
+        project_root,
+        env=env,
+        timeout_seconds=timeout_seconds,
+    )
     return {
         "stable": dist_tags.get("latest"),
         "beta": dist_tags.get("beta"),
@@ -168,6 +176,7 @@ def resolve_install_version(
     config: Config,
     npm_name: str,
     env: Optional[Mapping[str, str]] = None,
+    timeout_seconds: Optional[int] = None,
 ) -> Config:
     """Resolve an install-time selector into an exact version and catalog snapshot."""
 
@@ -175,6 +184,7 @@ def resolve_install_version(
         npm_name,
         config.project_root,
         env=env,
+        timeout_seconds=timeout_seconds,
     )
     resolved_version = resolve_explicit_selector_version(
         config.codex_selector,

@@ -52,6 +52,7 @@ def run_command(
     cwd: str,
     capture_output: bool = False,
     env: Optional[Mapping[str, str]] = None,
+    timeout_seconds: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     """Run a subprocess with explicit error reporting."""
 
@@ -62,14 +63,25 @@ def run_command(
             )
         )
     eprint("[codex-wrangler] Running: {}".format(" ".join(command)))
-    completed = subprocess.run(
-        list(command),
-        cwd=cwd,
-        check=False,
-        capture_output=capture_output,
-        env=dict(env) if env is not None else None,
-        text=True,
-    )
+    if timeout_seconds is not None:
+        eprint("[codex-wrangler] Timeout: {}s".format(timeout_seconds))
+    try:
+        completed = subprocess.run(
+            list(command),
+            cwd=cwd,
+            check=False,
+            capture_output=capture_output,
+            env=dict(env) if env is not None else None,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise CodexWranglerError(
+            "Command timed out after {}s: {}".format(
+                timeout_seconds,
+                " ".join(command),
+            )
+        ) from exc
     if completed.returncode != 0:
         stderr = completed.stderr.strip() if completed.stderr else ""
         detail = "\n{}".format(stderr) if stderr else ""

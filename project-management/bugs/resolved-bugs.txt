@@ -8,6 +8,17 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-06-02T12:10:22-07:00. Managed `npm install --prefix .codex-local`
+  could wait indefinitely after resolving a Codex version and writing
+  managed files. Root cause: managed npm subprocesses had no timeout,
+  and package installs allowed npm's optional audit, funding,
+  update-notifier, and progress behavior during the critical install
+  path. Resolution: added timeout-aware command execution, a
+  300-second default npm timeout with `--npm-timeout-seconds`,
+  install-only npm suppression flags, default HTTP fetch and foreground
+  script logging, and regression coverage.
+
+*
   Resolved: 2026-04-19T14:57:30-07:00. Bare operation words such as
   `codex-wrangler update` were treated as positional project roots, then
   produced uncaught tracebacks when no matching directory existed. Root cause:

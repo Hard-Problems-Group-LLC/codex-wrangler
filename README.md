@@ -250,25 +250,33 @@ codex-wrangler --upgrade --channel alpha .
 ```
 
 If a prior npm install was interrupted and left `.codex-local/node_modules`,
-`.codex-local/package-lock.json`, or `.codex-local/.npm-cache/_npx`
-inconsistent, use the explicit repair mode. It removes only managed npm
-install artifacts under `.codex-local` before reinstalling with
-`NPM_CONFIG_CACHE` pointed at `.codex-local/.npm-cache`; it does not remove
-`.codex-home`:
+`.codex-local/package-lock.json`, `.codex-local/.npm-cache/_npx`, or
+`.codex-local/.npm-cache/_cacache/tmp` inconsistent, use the explicit repair
+mode. It removes only managed npm install artifacts under `.codex-local`
+before reinstalling with `NPM_CONFIG_CACHE` pointed at
+`.codex-local/.npm-cache`; it does not remove `.codex-home`:
 
 ```bash
 codex-wrangler --upgrade --channel stable --repair-install .
 ```
 
 Repair mode deliberately targets only canonical managed artifact names:
-`.codex-local/node_modules`, `.codex-local/package-lock.json`, and
-`.codex-local/.npm-cache/_npx`. It will not remove ad hoc operator backups
-such as `.codex-local/node_modules.break-test`. If `--inspect` reports corrupt
+`.codex-local/node_modules`, `.codex-local/package-lock.json`,
+`.codex-local/.npm-cache/_npx`, and `.codex-local/.npm-cache/_cacache/tmp`.
+It will not remove ad hoc operator backups such as
+`.codex-local/node_modules.break-test`. If `--inspect` reports corrupt
 managed metadata, package manifests, or lockfiles, treat that as damaged state
 that should be repaired or reviewed before relying on the local launcher.
 Plain `npm install` can sometimes self-heal interrupted installs; repair mode
 exists for cases where the safer path is to discard the managed npm install
 artifacts and recreate them from the managed manifest.
+
+Managed npm operations use a 300-second timeout by default. Package
+installation disables npm's optional audit, funding, update-notifier, and
+spinner progress behavior, but emits npm HTTP fetch logs plus foreground
+lifecycle-script output for troubleshooting. If a slow network or registry
+needs a longer window, pass `--npm-timeout-seconds <seconds>`. To reduce npm
+install chatter, pass `--npm-install-loglevel notice`.
 
 Upgrade to one exact version:
 

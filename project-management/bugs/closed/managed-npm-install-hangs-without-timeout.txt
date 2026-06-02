@@ -1,0 +1,43 @@
+Managed npm install hangs without timeout
+
+Status: Closed
+Date Opened: 2026-06-02T12:04:58-07:00
+Scope: managed Codex package installation, npm subprocess execution, and
+operator diagnostics
+
+Summary
+
+`codex-wrangler` can wait indefinitely during the managed
+`npm install --prefix .codex-local` phase. The operator reported an install
+that resolved `@openai/codex` version `0.136.0`, wrote the managed files, then
+sat at npm's spinner until interrupted manually.
+
+Symptoms
+
+- `npm view @openai/codex dist-tags --json` completed and selected
+  `0.136.0`.
+- The command reached `npm install --prefix .../.codex-local`.
+- No timeout or actionable diagnostic was emitted before the operator pressed
+  `Ctrl-C`.
+
+Likely Root Cause
+
+The shared subprocess helper delegates to `subprocess.run` without a timeout.
+The install command also lets npm perform default audit, funding,
+update-notifier, and progress behavior, which can add avoidable registry
+round trips or spinner-only waits to the critical install path.
+
+Resolution
+
+Closed: 2026-06-02T12:10:22-07:00
+
+- Added timeout-aware subprocess execution with clear timeout errors.
+- Added a 300-second default managed npm timeout with a
+  `--npm-timeout-seconds` override.
+- Ran managed package installation with npm's nonessential install-time
+  audit, funding, update-notifier, and spinner behavior disabled.
+- Added HTTP fetch logging and foreground lifecycle-script output for default
+  troubleshooting progress.
+- Added regression tests for timeout behavior and install command wiring.
+- Validated the final fix with the local quality gate and 155 tests.
+- Added repair cleanup for truncated npm cache temp tarballs.

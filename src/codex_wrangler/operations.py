@@ -120,11 +120,40 @@ def npm_local_environment(config: Config) -> Dict[str, str]:
     return env
 
 
+def npm_install_environment(config: Config) -> Dict[str, str]:
+    """Return an environment that avoids optional install-time npm checks."""
+
+    env = npm_local_environment(config)
+    env["NPM_CONFIG_AUDIT"] = "false"
+    env["NPM_CONFIG_FOREGROUND_SCRIPTS"] = "true"
+    env["NPM_CONFIG_FUND"] = "false"
+    env["NPM_CONFIG_LOGLEVEL"] = config.npm_install_loglevel
+    env["NPM_CONFIG_PROGRESS"] = "false"
+    env["NPM_CONFIG_UPDATE_NOTIFIER"] = "false"
+    return env
+
+
 def local_codex_bin_path(config: Config) -> Path:
     """Return the expected local Codex executable path for this platform."""
 
     binary_name = "codex.cmd" if os.name == "nt" else "codex"
     return config.layout.local_node_modules_dir / ".bin" / binary_name
+
+
+def managed_npm_install_command(config: Config, npm_name: str) -> List[str]:
+    """Return the npm install command for the managed Codex package tree."""
+
+    return [
+        npm_name,
+        "install",
+        "--prefix",
+        str(config.layout.local_dir),
+        "--no-audit",
+        "--no-fund",
+        "--foreground-scripts",
+        "--loglevel={}".format(config.npm_install_loglevel),
+        "--progress=false",
+    ]
 
 
 def local_codex_package_json_path(config: Config) -> Path:
@@ -285,6 +314,12 @@ def repair_managed_npm_install(config: Config) -> None:
         project_root=config.project_root,
         dry_run=config.dry_run,
     )
+    remove_tree(
+        config.layout.local_dir / ".npm-cache" / "_cacache" / "tmp",
+        label="managed local npm cache temp files",
+        project_root=config.project_root,
+        dry_run=config.dry_run,
+    )
 
 
 def install_like_operation(config: Config) -> int:
@@ -304,6 +339,7 @@ def install_like_operation(config: Config) -> int:
                 config,
                 npm_name,
                 env=npm_local_environment(config),
+                timeout_seconds=config.npm_timeout_seconds,
             )
 
     eprint(
@@ -349,8 +385,8 @@ def install_like_operation(config: Config) -> int:
             )
         )
         eprint(
-            "[codex-wrangler] Would run: {} install --prefix {}".format(
-                npm_name, resolved_config.layout.local_dir
+            "[codex-wrangler] Would run: {}".format(
+                " ".join(managed_npm_install_command(resolved_config, npm_name))
             )
         )
     elif resolved_config.skip_install:
@@ -359,9 +395,10 @@ def install_like_operation(config: Config) -> int:
         if resolved_config.repair_install:
             repair_managed_npm_install(resolved_config)
         run_command(
-            [npm_name, "install", "--prefix", str(resolved_config.layout.local_dir)],
+            managed_npm_install_command(resolved_config, npm_name),
             cwd=str(resolved_config.project_root),
-            env=npm_local_environment(resolved_config),
+            env=npm_install_environment(resolved_config),
+            timeout_seconds=resolved_config.npm_timeout_seconds,
         )
         verify_local_codex_binary(resolved_config)
 
@@ -382,6 +419,7 @@ def update_operation(config: Config) -> int:
         npm_name,
         config.project_root,
         env=npm_local_environment(config),
+        timeout_seconds=config.npm_timeout_seconds,
     )
     updated_config = replace(
         config,
@@ -834,6 +872,7 @@ def selftest_operation(config: Config) -> int:
                 cwd=str(config.project_root),
                 capture_output=True,
                 env=npm_local_environment(config),
+                timeout_seconds=config.npm_timeout_seconds,
             )
         except CodexWranglerError as exc:
             record("npm_audit_clean", False, str(exc))

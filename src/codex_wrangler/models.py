@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .constants import DEFAULT_NPM_INSTALL_LOGLEVEL, DEFAULT_NPM_TIMEOUT_SECONDS
+
 
 class CodexWranglerError(RuntimeError):
     """Raised when an operation cannot be completed safely."""
@@ -49,6 +51,8 @@ class Config:
     reasonable_permissions_enabled: bool = False
     reconfigure_only: bool = False
     repair_install: bool = False
+    npm_timeout_seconds: int = DEFAULT_NPM_TIMEOUT_SECONDS
+    npm_install_loglevel: str = DEFAULT_NPM_INSTALL_LOGLEVEL
     available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
     available_versions_updated_at: Optional[str] = None
 

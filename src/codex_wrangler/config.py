@@ -13,7 +13,10 @@ from .constants import (
     DEFAULT_INSTALL_CODEX_SELECTOR,
     DEFAULT_LAUNCHER_RELATIVE_PATH,
     DEFAULT_LOCAL_DIR,
+    DEFAULT_NPM_INSTALL_LOGLEVEL,
+    DEFAULT_NPM_TIMEOUT_SECONDS,
     DEFAULT_README_FILENAME,
+    NPM_INSTALL_LOGLEVELS,
 )
 from .layout import build_layout, read_existing_state, resolve_project_root
 from .models import CodexWranglerError, Config, ExistingState
@@ -56,6 +59,18 @@ def normalize_requested_version(raw_value: Optional[str]) -> Optional[str]:
     if stripped.lower() == "latest":
         return "latest"
     return stripped
+
+
+def parse_positive_int(raw_value: str) -> int:
+    """Parse one positive integer CLI value."""
+
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if value <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return value
 
 
 def validate_channel_version_pair(
@@ -271,6 +286,26 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "Before npm install, remove only managed npm install artifacts "
             "under .codex-local: node_modules, package-lock.json, and the "
             "npx scratch cache. This does not remove .codex-home."
+        ),
+    )
+    parser.add_argument(
+        "--npm-timeout-seconds",
+        type=parse_positive_int,
+        default=DEFAULT_NPM_TIMEOUT_SECONDS,
+        help=(
+            "Timeout for managed npm operations in seconds. Default: {}".format(
+                DEFAULT_NPM_TIMEOUT_SECONDS
+            )
+        ),
+    )
+    parser.add_argument(
+        "--npm-install-loglevel",
+        choices=NPM_INSTALL_LOGLEVELS,
+        default=DEFAULT_NPM_INSTALL_LOGLEVEL,
+        help=(
+            "npm log level for managed package installation. Default: {}".format(
+                DEFAULT_NPM_INSTALL_LOGLEVEL
+            )
         ),
     )
     parser.add_argument(
@@ -530,6 +565,8 @@ def config_from_args(args: argparse.Namespace) -> Config:
         reasonable_permissions_enabled=reasonable_permissions_enabled,
         reconfigure_only=reconfigure_only,
         repair_install=bool(args.repair_install),
+        npm_timeout_seconds=args.npm_timeout_seconds,
+        npm_install_loglevel=args.npm_install_loglevel,
         available_versions=dict(existing.available_versions),
         available_versions_updated_at=existing.available_versions_updated_at,
     )

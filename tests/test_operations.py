@@ -90,7 +90,7 @@ def test_install_like_operation_overwrites_managed_files_without_force(
     )
     monkeypatch.setattr(
         "codex_wrangler.operations.resolve_install_version",
-        lambda config, npm_name, env=None: config_factory(
+        lambda config, npm_name, env=None, timeout_seconds=None: config_factory(
             tmp_path,
             operation=config.operation,
             codex_selector="latest",
@@ -153,7 +153,7 @@ def test_update_operation_refreshes_known_versions_without_rewriting_package_jso
     )
     monkeypatch.setattr(
         "codex_wrangler.operations.fetch_available_codex_versions",
-        lambda npm_name, project_root, env=None: {
+        lambda npm_name, project_root, env=None, timeout_seconds=None: {
             "stable": "0.30.0",
             "beta": "0.31.0-beta.2",
             "alpha": "0.31.0-alpha.1",
@@ -252,6 +252,9 @@ def test_install_like_operation_repair_install_cleans_managed_npm_artifacts(
     npx_cache = layout.local_dir / ".npm-cache" / "_npx"
     npx_cache.mkdir(parents=True)
     (npx_cache / "legacy-codex.txt").write_text("stale", encoding="utf-8")
+    cache_tmp = layout.local_dir / ".npm-cache" / "_cacache" / "tmp"
+    cache_tmp.mkdir(parents=True)
+    (cache_tmp / "truncated-tarball").write_text("stale", encoding="utf-8")
     called = {"npm_install": False, "verify": False}
 
     monkeypatch.setattr(
@@ -264,16 +267,40 @@ def test_install_like_operation_repair_install_cleans_managed_npm_artifacts(
     )
     monkeypatch.setattr(
         "codex_wrangler.operations.resolve_install_version",
-        lambda config, npm_name, env=None: config,
+        lambda config, npm_name, env=None, timeout_seconds=None: config,
     )
 
-    def fake_run(command, cwd, capture_output=False, env=None):
+    def fake_run(
+        command,
+        cwd,
+        capture_output=False,
+        env=None,
+        timeout_seconds=None,
+    ):
         called["npm_install"] = True
-        assert command[:2] == ["npm", "install"]
+        assert command == [
+            "npm",
+            "install",
+            "--prefix",
+            str(layout.local_dir),
+            "--no-audit",
+            "--no-fund",
+            "--foreground-scripts",
+            "--loglevel=http",
+            "--progress=false",
+        ]
         assert env["NPM_CONFIG_CACHE"] == str(layout.local_dir / ".npm-cache")
+        assert env["NPM_CONFIG_AUDIT"] == "false"
+        assert env["NPM_CONFIG_FOREGROUND_SCRIPTS"] == "true"
+        assert env["NPM_CONFIG_FUND"] == "false"
+        assert env["NPM_CONFIG_LOGLEVEL"] == "http"
+        assert env["NPM_CONFIG_PROGRESS"] == "false"
+        assert env["NPM_CONFIG_UPDATE_NOTIFIER"] == "false"
+        assert timeout_seconds == config.npm_timeout_seconds
         assert not layout.local_node_modules_dir.exists()
         assert not layout.local_package_lock_path.exists()
         assert not npx_cache.exists()
+        assert not cache_tmp.exists()
 
     def fake_verify(_config):
         called["verify"] = True
@@ -702,7 +729,13 @@ def test_selftest_reports_audit_command_failure(
             self.stdout = stdout
             self.stderr = stderr
 
-    def fake_run(command, cwd, capture_output=False, env=None):
+    def fake_run(
+        command,
+        cwd,
+        capture_output=False,
+        env=None,
+        timeout_seconds=None,
+    ):
         if command[-1] == "--version":
             return Completed(stdout="codex-cli 0.117.0-alpha.19\n")
         if command[-2:] == ["resume", "--help"]:
@@ -711,6 +744,8 @@ def test_selftest_reports_audit_command_failure(
             assert env["NPM_CONFIG_CACHE"] == str(
                 config.layout.local_dir / ".npm-cache"
             )
+            assert "NPM_CONFIG_AUDIT" not in env
+            assert timeout_seconds == config.npm_timeout_seconds
             raise CodexWranglerError("network unavailable")
         raise AssertionError(command)
 
@@ -775,7 +810,13 @@ def test_selftest_reports_invalid_audit_json(
             self.stdout = stdout
             self.stderr = stderr
 
-    def fake_run(command, cwd, capture_output=False, env=None):
+    def fake_run(
+        command,
+        cwd,
+        capture_output=False,
+        env=None,
+        timeout_seconds=None,
+    ):
         if command[-1] == "--version":
             return Completed(stdout="codex-cli 0.117.0-alpha.19\n")
         if command[-2:] == ["resume", "--help"]:

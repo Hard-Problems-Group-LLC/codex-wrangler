@@ -1,3 +1,5 @@
+import argparse
+
 import pytest
 
 from codex_wrangler.config import (
@@ -6,10 +8,13 @@ from codex_wrangler.config import (
     determine_target_selection,
     normalize_requested_version,
     parse_args,
+    parse_positive_int,
 )
 from codex_wrangler.constants import (
     DEFAULT_INSTALL_CODEX_CHANNEL,
     DEFAULT_INSTALL_CODEX_SELECTOR,
+    DEFAULT_NPM_INSTALL_LOGLEVEL,
+    DEFAULT_NPM_TIMEOUT_SECONDS,
 )
 from codex_wrangler.layout import resolve_relative_within_root
 from codex_wrangler.models import CodexWranglerError, ExistingState
@@ -33,6 +38,11 @@ def test_normalize_requested_version_accepts_case_insensitive_latest():
     assert normalize_requested_version("LATEST") == "latest"
     assert normalize_requested_version("  latest  ") == "latest"
     assert normalize_requested_version("0.30.0-beta.2") == "0.30.0-beta.2"
+
+
+def test_parse_positive_int_rejects_non_positive_values():
+    with pytest.raises(argparse.ArgumentTypeError, match="positive integer"):
+        parse_positive_int("0")
 
 
 def test_determine_target_selection_defaults_to_latest_stable_for_install():
@@ -141,6 +151,11 @@ def test_parse_args_rejects_mismatched_install_channel_and_version():
         parse_args(["--channel", "stable", "--version", "0.31.0-beta.2"])
 
 
+def test_parse_args_rejects_invalid_npm_timeout():
+    with pytest.raises(SystemExit):
+        parse_args(["--npm-timeout-seconds", "0"])
+
+
 def test_config_from_args_builds_expected_configuration(tmp_path):
     args = parse_args(
         [
@@ -162,8 +177,26 @@ def test_config_from_args_builds_expected_configuration(tmp_path):
     assert config.codex_selector == "latest"
     assert config.codex_channel == "beta"
     assert config.shared_home is True
+    assert config.npm_timeout_seconds == DEFAULT_NPM_TIMEOUT_SECONDS
+    assert config.npm_install_loglevel == DEFAULT_NPM_INSTALL_LOGLEVEL
     assert config.layout.launcher_relative == "bin/custom-codex"
     assert config.layout.readme_relative == "LOCAL-README.md"
+
+
+def test_config_from_args_honors_npm_timeout_override(tmp_path):
+    config = config_from_args(
+        parse_args(["--npm-timeout-seconds", "42", str(tmp_path)])
+    )
+
+    assert config.npm_timeout_seconds == 42
+
+
+def test_config_from_args_honors_npm_install_loglevel_override(tmp_path):
+    config = config_from_args(
+        parse_args(["--npm-install-loglevel", "notice", str(tmp_path)])
+    )
+
+    assert config.npm_install_loglevel == "notice"
 
 
 def test_config_from_args_update_falls_back_to_existing_managed_files(tmp_path):
