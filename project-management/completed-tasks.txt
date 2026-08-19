@@ -5,6 +5,24 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-07-10T04:12:04-07:00.
+  Owner: Codex and operator.
+  Requestor: operator.
+  Outcome: recovered the Rocky Linux 10.2 transplant with a directly
+  executable bootstrap wrapper, user-owned pinned pyenv reuse, Python 3.14.6
+  runtime selection, standard-venv base-drift rebuilding, and venv-safe nested
+  validation. Preserved the 154,483,126-byte project-local Codex home and its
+  memories, sessions, rules, goals, history, and authentication while repairing
+  the managed stable Codex 0.144.1 package tree. Added a specification, two
+  upstream ECRs, and repository recovery notes, then removed the emergency root
+  npm install after the managed launcher passed.
+  Validation: the full Black, Ruff, compileall, entropy, tripwire, and pytest
+  gate passed with 164 tests on Python 3.14.6. Real standard and development
+  installs passed; inspect had zero issues and warnings; self-test and npm audit
+  passed; isolated launcher version and transplanted ChatGPT login status
+  passed; post-removal inspect remained clean.
+
+*
   Completed: 2026-06-02T12:47:05-07:00. Extended repair install cleanup after
   inspecting the operator's timed-out npm install. Outcome: confirmed
   the project-local npm temp tarball was truncated, added removal of

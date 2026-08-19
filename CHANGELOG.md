@@ -10,6 +10,13 @@ and this repository aims to follow
 
 ### Added
 
+- Added a transplant-safe bootstrap specification, Rocky Linux 10.2 recovery
+  notes, and TheKnowledge ECRs for pinned pyenv ownership plus venv runtime
+  symlink preservation.
+- Added regression coverage for direct bootstrap-wrapper execution,
+  runtime-only stage-two provisioning, standard-venv base drift, nested
+  validation-runtime selection, and preservation of project-local Codex
+  memories during managed npm repair.
 - Added a bounded managed npm operations specification and regression tests
   for npm timeout reporting plus install command wiring.
 - Added a TheKnowledge ECR and executable companion proposed
@@ -46,6 +53,16 @@ and this repository aims to follow
 
 ### Changed
 
+- Updated the managed development runtime from Python 3.12.12 to 3.14.6 while
+  retaining Python 3.9 as the bootstrap and package compatibility floor.
+- Changed bootstrap to reuse existing pyenv and pyenv-virtualenv checkouts
+  without unattended Git updates, provision only the steady-state runtime,
+  and rebuild a standard user venv when its base interpreter has drifted.
+- Changed the repo-root validation wrapper to preserve `.venv/bin/python`
+  across symlink resolution and nested sandbox-safe Black subprocesses.
+- Clarified that `.codex-home` contains protected transplanted authentication,
+  memories, sessions, rules, history, goals, and context that install and
+  repair operations must preserve.
 - Changed managed Codex package installs to run with a 300-second default npm
   timeout, disable optional npm audit/funding/update-notifier/spinner checks,
   emit HTTP fetch and foreground lifecycle-script logs for troubleshooting,
@@ -89,10 +106,18 @@ and this repository aims to follow
 
 - Update the `TheKnowledge` submodule from `dcf9e09` to `76202ee` and adopt the refreshed managed AGENTS footer guidance.
 
+- Make Rocky Linux 10.2 bootstrap transplant-safe with Python 3.14.6, user-owned pinned pyenv reuse, standard-venv drift repair, and an executable compatibility wrapper.
+- Preserve project-local Codex memories during package repair and document the portable Codex recovery model plus upstream TheKnowledge ECRs.
+- Repair and verify the isolated stable Codex 0.144.1 install with clean inspect, self-test, login, and real standard/development bootstrap results, then remove the emergency root npm install.
+
+
 
 
 ### Fixed
 
+- Fixed `bootstrap.sh` so it is directly executable from a fresh checkout.
+- Fixed false missing-Black failures caused by resolving a venv Python symlink
+  to the sparse underlying pyenv interpreter.
 - Fixed managed npm subprocesses so install, version lookup, update, and
   self-test audit calls fail with clear timeout diagnostics instead of
   waiting indefinitely.

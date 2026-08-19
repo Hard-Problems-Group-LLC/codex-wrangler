@@ -187,7 +187,7 @@ def ensure_submodules(skip: bool) -> None:
 
 
 def ensure_runtime_contexts(user_home: Path) -> Tuple[Path, str, Path]:
-    """Install the configured bootstrap and runtime pyenv contexts."""
+    """Install the configured runtime pyenv context after bootstrap validation."""
 
     config = load_python_environment_config(REPO_ROOT)
     ensure_minimum_python(
@@ -197,7 +197,6 @@ def ensure_runtime_contexts(user_home: Path) -> Tuple[Path, str, Path]:
     )
     pyenv_root_path = default_install_pyenv_root(user_home)
     ensure_pyenv_installed(pyenv_root_path, run)
-    ensure_pyenv_context(pyenv_root_path, config.bootstrap, run)
     runtime_selection = ensure_pyenv_context(pyenv_root_path, config.runtime, run)
     runtime_python = pyenv_python_executable(pyenv_root_path, runtime_selection)
     if not runtime_python.is_file():
@@ -231,11 +230,46 @@ def venv_python_path(venv_path: Path) -> Path:
     return venv_path / bin_dir / executable
 
 
+def interpreter_base_identity(python_executable: Path) -> Path:
+    """Return the canonical base interpreter used by one Python executable."""
+
+    completed = run(
+        [
+            str(python_executable),
+            "-c",
+            (
+                "import os, sys; "
+                "print(os.path.realpath(getattr(sys, '_base_executable', "
+                "sys.executable)))"
+            ),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+    )
+    identity = completed.stdout.strip()
+    if not identity:
+        raise RuntimeError(
+            "Python did not report its base interpreter: {}".format(python_executable)
+        )
+    return Path(identity)
+
+
 def ensure_virtualenv(base_python: Path, venv_path: Path) -> Path:
-    """Create one virtual environment when it does not already exist."""
+    """Create a virtual environment or rebuild it after base-runtime drift."""
 
     venv_python = venv_python_path(venv_path)
     if venv_python.is_file():
+        try:
+            if interpreter_base_identity(venv_python) == interpreter_base_identity(
+                base_python
+            ):
+                return venv_python
+        except (OSError, RuntimeError, subprocess.CalledProcessError):
+            pass
+        run(
+            [str(base_python), "-m", "venv", "--clear", str(venv_path)],
+            cwd=REPO_ROOT,
+        )
         return venv_python
     venv_path.parent.mkdir(parents=True, exist_ok=True)
     run([str(base_python), "-m", "venv", str(venv_path)], cwd=REPO_ROOT)

@@ -71,13 +71,26 @@ active editing:
 ```
 
 That flow is the supported developer path on both Rocky and Ubuntu. It ensures
-Python 3.9+ is available, initializes `TheKnowledge`, installs a pyenv-managed
-Python 3.12 toolchain, builds the repo-local `.venv`, installs the package in
-editable mode, and makes `direnv` mandatory for automatic activation when you
-enter the repository.
+Python 3.9+ is available, initializes `TheKnowledge`, selects the configured
+pyenv-managed Python 3.14.6 runtime, builds the repo-local `.venv`, installs the
+package in editable mode, and makes `direnv` mandatory for automatic activation
+when you enter the repository. Existing pyenv and pyenv-virtualenv checkouts
+are treated as user-owned, deliberately versioned tools and are not updated by
+project bootstrap.
 
 After the script finishes, open a new shell in this repository so the managed
 `direnv` hook can activate `.venv` automatically.
+
+The installer bootstraps the `codex-wrangler` utility. On a clean checkout,
+create the ignored isolated Codex payload as a separate explicit operation:
+
+```bash
+codex-wrangler .
+```
+
+If transplant inspection reports a missing managed `node_modules` tree or a
+manifest/lock mismatch, use the documented `--repair-install` upgrade path
+instead.
 
 Run `./install.sh --help` to see the current stage-1 help plus the live
 stage-2 options. Non-help options passed to `install.sh` are forwarded to
@@ -263,7 +276,9 @@ codex-wrangler --upgrade --channel stable --repair-install .
 Repair mode deliberately targets only canonical managed artifact names:
 `.codex-local/node_modules`, `.codex-local/package-lock.json`,
 `.codex-local/.npm-cache/_npx`, and `.codex-local/.npm-cache/_cacache/tmp`.
-It will not remove ad hoc operator backups such as
+It never removes `.codex-home`, so transplanted authentication, memories,
+sessions, rules, history, goals, and other project-local Codex context survive
+package recovery. It will not remove ad hoc operator backups such as
 `.codex-local/node_modules.break-test`. If `--inspect` reports corrupt
 managed metadata, package manifests, or lockfiles, treat that as damaged state
 that should be repaired or reviewed before relying on the local launcher.

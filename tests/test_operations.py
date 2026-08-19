@@ -255,6 +255,9 @@ def test_install_like_operation_repair_install_cleans_managed_npm_artifacts(
     cache_tmp = layout.local_dir / ".npm-cache" / "_cacache" / "tmp"
     cache_tmp.mkdir(parents=True)
     (cache_tmp / "truncated-tarball").write_text("stale", encoding="utf-8")
+    memory = layout.codex_home_dir / ".codex" / "memories" / "project-context.md"
+    memory.parent.mkdir(parents=True)
+    memory.write_text("retained context\n", encoding="utf-8")
     called = {"npm_install": False, "verify": False}
 
     monkeypatch.setattr(
@@ -301,6 +304,7 @@ def test_install_like_operation_repair_install_cleans_managed_npm_artifacts(
         assert not layout.local_package_lock_path.exists()
         assert not npx_cache.exists()
         assert not cache_tmp.exists()
+        assert memory.read_text(encoding="utf-8") == "retained context\n"
 
     def fake_verify(_config):
         called["verify"] = True
@@ -315,6 +319,7 @@ def test_install_like_operation_repair_install_cleans_managed_npm_artifacts(
 
     assert exit_code == 0
     assert called == {"npm_install": True, "verify": True}
+    assert memory.read_text(encoding="utf-8") == "retained context\n"
 
 
 def test_gather_inspection_report_surfaces_warnings_and_metadata_mismatch(

@@ -8,6 +8,17 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-07-10T04:12:04-07:00. Rocky Linux 10.2 transplant recovery
+  could not bootstrap the developer environment or isolated Codex payload
+  cleanly. Root cause: bootstrap mutated a user-owned detached pyenv checkout,
+  provisioned an obsolete minimum runtime, trusted drifted standard venvs,
+  shipped a non-executable compatibility wrapper, and collapsed venv symlinks
+  during validation. Resolution: separated those ownership layers, aligned the
+  runtime on Python 3.14.6, preserved assistant memory during repair, restored
+  stable Codex 0.144.1, passed 164 tests plus real standard/dev/self-test/login
+  checks, and removed the emergency root npm install.
+
+*
   Resolved: 2026-06-02T12:10:22-07:00. Managed `npm install --prefix .codex-local`
   could wait indefinitely after resolving a Codex version and writing
   managed files. Root cause: managed npm subprocesses had no timeout,

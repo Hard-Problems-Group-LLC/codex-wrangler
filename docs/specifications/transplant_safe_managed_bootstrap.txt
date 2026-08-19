@@ -1,0 +1,85 @@
+Transplant-Safe Managed Bootstrap
+=================================
+
+Purpose
+-------
+Define how the managed installer should recover on a rebuilt workstation when
+source and declarative configuration were preserved but generated runtimes,
+virtual environments, and Node dependency trees were intentionally removed.
+
+Scope
+-----
+This specification covers:
+
+- `./install.sh`, `./bootstrap.sh`, and `scripts/install-stage-2.py`;
+- the shared pyenv bootstrap helpers copied into this repository;
+- `python-environments.json` and the repository `.python-version` policy;
+- standard and development installation verification; and
+- the boundary between installing `codex-wrangler` and using it to recreate
+  the ignored project-local Codex package tree.
+
+Requirements
+------------
+1. Existing pyenv ownership
+   When a usable pyenv executable already exists under the selected user home,
+   bootstrap must reuse it without fetching, pulling, switching, or otherwise
+   changing its controller repository. A deliberately detached, reviewed
+   pyenv release tag is a valid steady state.
+2. Existing plugin ownership
+   When a usable `pyenv-virtualenv` plugin checkout already exists, bootstrap
+   must reuse it without performing unattended Git updates. The plugin is
+   required only when the selected environment name differs from its base
+   interpreter version.
+3. Bootstrap-versus-runtime separation
+   Stage 1 may run on any interpreter satisfying the declared bootstrap
+   minimum. Stage 2 must not install a separate minimum-version interpreter
+   merely because the configuration records that compatibility floor. It must
+   provision only the configured steady-state runtime needed by the project.
+4. Current project runtime
+   This checkout must select CPython `3.14.6` for its managed development
+   runtime while retaining Python 3.9 as the supported bootstrap and package
+   compatibility floor. The checked-in `.python-version` and runtime context
+   must agree.
+5. Compatibility entry-point execution
+   `bootstrap.sh` must be directly executable from a fresh checkout and must
+   continue to delegate arguments and exit status to `install.sh`.
+6. Generated-state recovery
+   Standard mode must install a stable user-scoped `codex-wrangler` command.
+   It must reuse an existing standard venv only when that venv reports the
+   same canonical base interpreter as the currently selected standard base;
+   otherwise it must rebuild the venv before installation.
+   Development mode must create or refresh the repository `.venv`, install the
+   project in editable mode, and preserve the project-bound launcher policy.
+   Neither mode may treat a removed `.codex-local/node_modules` directory as
+   tracked source or silently adopt an emergency root-level npm project.
+7. Codex payload boundary
+   Recreating `.codex-local/node_modules` remains an explicit
+   `codex-wrangler` operation after the utility bootstrap. Repair mode must be
+   used when surviving managed manifests or lockfiles disagree. The emergency
+   root-level npm installation may be removed only after the isolated launcher
+   and self-test pass.
+8. Protected assistant state
+   Existing `.codex-home` content is protected transplant state. Install and
+   repair operations must preserve authentication, memories, sessions, rules,
+   history, goals, and other project-local assistant context even when the
+   `.codex-local` package tree and npm caches must be rebuilt. Any future state
+   migration must take a backup and transform content non-destructively.
+9. Host policy preservation
+   Bootstrap must not replace Rocky's system Python, install packages into the
+   system interpreter, infer Git identity, or rewrite organization-specific
+   SSH host aliases.
+
+Validation
+----------
+- Unit tests must verify that existing pyenv and plugin checkouts are reused
+  without Git subprocesses.
+- Unit tests must verify that stage 2 provisions only the configured runtime
+  context and writes the matching `.python-version`.
+- Repair tests must place a sentinel under `.codex-home/.codex/memories` and
+  prove it survives managed npm cleanup and reinstall orchestration.
+- Entry-point tests must execute `bootstrap.sh` directly.
+- The full repository quality gate must pass under the managed `.venv`.
+- Real standard and development installs must pass on Rocky Linux 10.2.
+- `codex-wrangler --inspect`, `codex-wrangler --selftest`, and
+  `bin/codex-local --version` must pass before emergency npm artifacts are
+  removed.

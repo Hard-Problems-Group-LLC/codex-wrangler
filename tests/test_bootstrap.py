@@ -2,8 +2,10 @@ from pathlib import Path
 import importlib.util
 import io
 import os
+from types import SimpleNamespace
 
 from scripts.python_environment_bootstrap import (
+    PythonContextConfig,
     context_requires_virtualenv,
     DIRENV_BEGIN,
     DIRENV_END,
@@ -12,6 +14,8 @@ from scripts.python_environment_bootstrap import (
     build_envrc_content,
     detect_shell_name,
     direnv_download_name,
+    ensure_pyenv_installed,
+    ensure_pyenv_virtualenv_plugin,
     load_python_environment_config,
     selection_name,
     shell_rc_path,
@@ -34,9 +38,124 @@ def test_load_python_environment_config_reads_runtime_selection():
     config = load_python_environment_config(ROOT)
 
     assert config.bootstrap.required_version == "3.9"
-    assert config.runtime.environment_name == "3.12.12"
+    assert config.runtime.environment_name == "3.14.6"
     assert not context_requires_virtualenv(config.runtime)
-    assert selection_name(config.runtime) == "3.12.12"
+    assert selection_name(config.runtime) == "3.14.6"
+
+
+def test_existing_pyenv_checkout_is_reused_without_vcs_mutation(tmp_path):
+    pyenv_root = tmp_path / ".pyenv"
+    executable = pyenv_root / "bin" / "pyenv"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o755)
+
+    def unexpected_runner(command):
+        raise AssertionError("existing pyenv checkout must not be mutated")
+
+    assert ensure_pyenv_installed(pyenv_root, unexpected_runner) == executable
+
+
+def test_existing_pyenv_plugin_is_reused_without_vcs_mutation(tmp_path):
+    pyenv_root = tmp_path / ".pyenv"
+    plugin_root = pyenv_root / "plugins" / "pyenv-virtualenv"
+    plugin_root.mkdir(parents=True)
+
+    def unexpected_runner(command):
+        raise AssertionError("existing pyenv plugin must not be mutated")
+
+    assert ensure_pyenv_virtualenv_plugin(pyenv_root, unexpected_runner) == plugin_root
+
+
+def test_runtime_context_setup_does_not_install_bootstrap_floor(monkeypatch, tmp_path):
+    module = load_install_stage_2_module()
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    pyenv_root = tmp_path / ".pyenv"
+    runtime_python = pyenv_root / "versions" / "3.14.6" / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.write_text("", encoding="utf-8")
+    bootstrap = PythonContextConfig("3.9", "3.9.21", "3.9.21")
+    runtime = PythonContextConfig("3.12", "3.14.6", "3.14.6")
+    config = SimpleNamespace(bootstrap=bootstrap, runtime=runtime)
+    installed_contexts = []
+
+    monkeypatch.setattr(module, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        module, "load_python_environment_config", lambda selected_root: config
+    )
+    monkeypatch.setattr(
+        module, "default_install_pyenv_root", lambda user_home: pyenv_root
+    )
+    monkeypatch.setattr(module, "ensure_pyenv_installed", lambda root, runner: None)
+
+    def fake_ensure_context(root, context, runner):
+        installed_contexts.append(context)
+        return context.environment_name
+
+    monkeypatch.setattr(module, "ensure_pyenv_context", fake_ensure_context)
+
+    result = module.ensure_runtime_contexts(tmp_path)
+
+    assert result == (pyenv_root, "3.14.6", runtime_python)
+    assert installed_contexts == [runtime]
+    assert (repo_root / ".python-version").read_text(encoding="utf-8") == "3.14.6\n"
+
+
+def test_standard_virtualenv_keeps_matching_base_interpreter(monkeypatch, tmp_path):
+    module = load_install_stage_2_module()
+    base_python = tmp_path / "pyenv" / "bin" / "python"
+    venv_path = tmp_path / "venv"
+    venv_python = venv_path / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("", encoding="utf-8")
+    commands = []
+
+    monkeypatch.setattr(
+        module,
+        "interpreter_base_identity",
+        lambda executable: Path("/managed/python"),
+    )
+    monkeypatch.setattr(
+        module,
+        "run",
+        lambda command, cwd: commands.append((list(command), cwd)),
+    )
+
+    assert module.ensure_virtualenv(base_python, venv_path) == venv_python
+    assert commands == []
+
+
+def test_standard_virtualenv_rebuilds_after_base_interpreter_drift(
+    monkeypatch, tmp_path
+):
+    module = load_install_stage_2_module()
+    base_python = tmp_path / "pyenv" / "bin" / "python"
+    venv_path = tmp_path / "venv"
+    venv_python = venv_path / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("", encoding="utf-8")
+    commands = []
+
+    def fake_identity(executable):
+        if executable == base_python:
+            return Path("/managed/python")
+        return Path("/system/python")
+
+    monkeypatch.setattr(module, "interpreter_base_identity", fake_identity)
+    monkeypatch.setattr(
+        module,
+        "run",
+        lambda command, cwd: commands.append((list(command), cwd)),
+    )
+
+    assert module.ensure_virtualenv(base_python, venv_path) == venv_python
+    assert commands == [
+        (
+            [str(base_python), "-m", "venv", "--clear", str(venv_path)],
+            module.REPO_ROOT,
+        )
+    ]
 
 
 def test_detect_shell_name_defaults_to_bash_when_empty():

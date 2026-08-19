@@ -118,6 +118,14 @@ def test_install_sh_help_runs_from_checkout():
     assert "--system" in completed.stdout
 
 
+def test_install_sh_does_not_update_existing_pyenv_checkout():
+    repo_root = Path(__file__).resolve().parents[1]
+    content = (repo_root / "install.sh").read_text(encoding="utf-8")
+
+    assert 'pyenv_fallback_version="3.14.6"' in content
+    assert 'git -C "$pyenv_root" pull --ff-only' not in content
+
+
 def test_install_sh_rejects_system_without_root():
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "install.sh"
@@ -204,8 +212,9 @@ printf '%s\n' "$@" > "$INSTALL_SH_TEST_OUTPUT"
 def test_bootstrap_sh_help_delegates_to_install_sh():
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "bootstrap.sh"
+    assert os.access(script, os.X_OK)
     completed = subprocess.run(
-        ["bash", str(script), "--help"],
+        [str(script), "--help"],
         cwd=repo_root,
         check=False,
         capture_output=True,

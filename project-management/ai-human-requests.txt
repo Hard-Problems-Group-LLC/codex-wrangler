@@ -13,6 +13,16 @@ Pending Requests
 Active Requests
 ---------------
 
+*
+  2026-07-10T04:06:04-07:00
+  Requestor: Codex
+  Action: Review and remove the legacy unconditional pyenv initialization block
+  from `/home/mheck/.bash_profile` after confirming the managed guarded block
+  in `/home/mheck/.bashrc` is the intended sole initialization path.
+  Status: active. The duplicate is outside this project's managed file scope
+  and currently repeats pyenv/pyenv-virtualenv shim entries in interactive
+  shell PATH values.
+
 Completed Requests
 ------------------
 

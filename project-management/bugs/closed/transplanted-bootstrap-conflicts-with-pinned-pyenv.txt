@@ -1,0 +1,64 @@
+Transplanted bootstrap conflicts with pinned pyenv
+
+Status: Closed
+Date Opened: 2026-07-10T02:55:31-07:00
+Date Closed: 2026-07-10T04:12:04-07:00
+Owner: Codex and operator
+Scope: Rocky Linux 10.2 transplant recovery, managed Python bootstrap,
+validation tooling, and project-local Codex restoration
+
+Summary
+
+A rebuilt Rocky Linux 10.2 workstation retained source and project-local
+assistant state but intentionally removed host-built Python runtimes, virtual
+environments, and Node dependency trees. The committed compatibility wrapper
+was not executable, development bootstrap tried to update a deliberately
+detached pyenv checkout and restore obsolete runtimes, standard mode silently
+reused a venv from a different base, and the validation harness collapsed its
+venv Python symlink to a sparse pyenv interpreter.
+
+Root Cause
+
+The bootstrap and validation layers conflated the bootstrap compatibility
+floor, steady-state runtime, user-owned version-manager repositories,
+host-generated environments, and protected project-local assistant state.
+Tests did not cover a detached controller, transplanted generated state,
+standard-venv base drift, nested validation processes, or direct execution of
+the compatibility wrapper.
+
+Resolution
+
+- Preserved the executable mode for `bootstrap.sh` and added direct-execution
+  coverage.
+- Updated the project runtime and stage-one fallback to CPython `3.14.6` while
+  retaining Python 3.9 compatibility.
+- Reused existing pyenv and pyenv-virtualenv checkouts without unattended Git
+  mutation and stopped provisioning the minimum bootstrap interpreter in
+  stage 2.
+- Rebuilt standard user venvs when their canonical base interpreter differs
+  from the selected base.
+- Preserved `.venv/bin/python` across validation path normalization and nested
+  sandbox-safe Black processes.
+- Added an explicit regression sentinel proving managed npm repair preserves
+  `.codex-home/.codex/memories`.
+- Added a specification, two TheKnowledge ECRs, repository recovery notes, and
+  a cross-project modernization guide.
+
+Real-Host Validation
+
+- Standard and development bootstrap passed on Rocky Linux 10.2 with Python
+  3.14.6; pyenv remained detached at reviewed tag `v2.7.3`.
+- Managed Codex stable `0.144.1` repair, inspect, self-test, launcher version,
+  resume help, login status, and npm audit passed. Inspect reported zero issues
+  and warnings; npm audit reported zero vulnerabilities.
+- A permissions-preserving pre-repair backup matched `.codex-home` at
+  154,483,126 bytes and 5,252 files. Those metrics and memory/session/rule
+  directory metadata were unchanged by package repair.
+- The full required quality gate passed with 164 tests on Python 3.14.6.
+- The emergency root `node_modules`, `package.json`, and `package-lock.json`
+  were removed only after the isolated replacement passed; post-removal
+  launcher and inspect checks remained clean.
+
+Specification
+
+`docs/specifications/transplant_safe_managed_bootstrap.txt`
