@@ -18,6 +18,7 @@ The utility also supports:
 - installation of the current stable Codex release by default
 - JSON inspection with `--inspect`
 - pessimistic verification with `--selftest`
+- context-preserving exact-version recovery with `--repair /absolute/root`
 - conservative removal with `--uninstall`
 - version-catalog refresh with `--update`
 - channel-aware upgrades with `--upgrade`
@@ -88,9 +89,8 @@ create the ignored isolated Codex payload as a separate explicit operation:
 codex-wrangler .
 ```
 
-If transplant inspection reports a missing managed `node_modules` tree or a
-manifest/lock mismatch, use the documented `--repair-install` upgrade path
-instead.
+If transplant inspection reports a missing or damaged managed `node_modules`
+tree, use the documented standalone `--repair /absolute/project/root` path.
 
 Run `./install.sh --help` to see the current stage-1 help plus the live
 stage-2 options. Non-help options passed to `install.sh` are forwarded to
@@ -262,29 +262,38 @@ codex-wrangler --upgrade --channel beta .
 codex-wrangler --upgrade --channel alpha .
 ```
 
-If a prior npm install was interrupted and left `.codex-local/node_modules`,
-`.codex-local/package-lock.json`, `.codex-local/.npm-cache/_npx`, or
-`.codex-local/.npm-cache/_cacache/tmp` inconsistent, use the explicit repair
-mode. It removes only managed npm install artifacts under `.codex-local`
-before reinstalling with `NPM_CONFIG_CACHE` pointed at
-`.codex-local/.npm-cache`; it does not remove `.codex-home`:
+If a prior npm install was interrupted or a local Codex executable is damaged,
+run `--repair` from a known-good spare `codex-wrangler` command. The project
+root is the mandatory value of `--repair`, must be an absolute path, and must
+name the directory above `bin/`, `.codex-local/`, and `.codex-home/`:
+
+```bash
+codex-wrangler --repair /absolute/path/to/project-root
+```
+
+Repair first proves that the target is an existing managed install and infers
+one exact Codex version from surviving metadata, package manifests, or the
+lockfile. It stops on missing or conflicting exact-version evidence rather
+than resolving `latest` or silently upgrading. The running utility may come
+from another checkout or installation; it does not invoke the damaged target
+launcher.
+
+The operation deliberately targets only canonical managed artifact names:
+`.codex-local/node_modules`, `.codex-local/package-lock.json`,
+`.codex-local/.npm-cache/_npx`, and `.codex-local/.npm-cache/_cacache/tmp`.
+It never removes `.codex-home`, `.codex`, `.agents`, `.local`, project source,
+or ad hoc operator backups such as `.codex-local/node_modules.break-test`.
+Authentication, memories, sessions, rules, history, goals, and other
+project-local Codex context therefore survive package recovery.
+
+`--repair-install` remains available as a lower-level install or upgrade
+modifier for an operator who has deliberately selected a version/channel. It
+performs the same bounded npm cleanup, but it does not provide `--repair`'s
+managed-ownership proof and exact-version recovery policy:
 
 ```bash
 codex-wrangler --upgrade --channel stable --repair-install .
 ```
-
-Repair mode deliberately targets only canonical managed artifact names:
-`.codex-local/node_modules`, `.codex-local/package-lock.json`,
-`.codex-local/.npm-cache/_npx`, and `.codex-local/.npm-cache/_cacache/tmp`.
-It never removes `.codex-home`, so transplanted authentication, memories,
-sessions, rules, history, goals, and other project-local Codex context survive
-package recovery. It will not remove ad hoc operator backups such as
-`.codex-local/node_modules.break-test`. If `--inspect` reports corrupt
-managed metadata, package manifests, or lockfiles, treat that as damaged state
-that should be repaired or reviewed before relying on the local launcher.
-Plain `npm install` can sometimes self-heal interrupted installs; repair mode
-exists for cases where the safer path is to discard the managed npm install
-artifacts and recreate them from the managed manifest.
 
 Managed npm operations use a 300-second timeout by default. Package
 installation disables npm's optional audit, funding, update-notifier, and

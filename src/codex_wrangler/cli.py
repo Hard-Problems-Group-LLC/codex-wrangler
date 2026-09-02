@@ -24,7 +24,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         args = parse_args(argv)
         config = config_from_args(args)
-        if config.operation != "uninstall":
+        if config.operation not in ("repair", "uninstall"):
             ensure_gitignore_block(config)
         if config.operation == "inspect":
             return inspect_operation(config)

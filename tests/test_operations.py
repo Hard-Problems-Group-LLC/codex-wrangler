@@ -7,10 +7,12 @@ from codex_wrangler.filesystem import upsert_gitignore_block, write_metadata
 from codex_wrangler.models import CodexWranglerError
 from codex_wrangler.operations import (
     gather_inspection_report,
+    inspect_local_codex_native_payloads,
     install_like_operation,
     selftest_operation,
     update_operation,
     uninstall_operation,
+    verify_local_codex_binary,
 )
 from codex_wrangler.rendering import (
     build_gitignore_block,
@@ -320,6 +322,113 @@ def test_install_like_operation_repair_install_cleans_managed_npm_artifacts(
     assert exit_code == 0
     assert called == {"npm_install": True, "verify": True}
     assert memory.read_text(encoding="utf-8") == "retained context\n"
+
+
+def test_verify_local_codex_binary_rejects_native_truncation_before_execution(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    """Do not execute the npm shim after native structural validation fails."""
+
+    config = config_factory(tmp_path)
+    local_codex_bin = config.layout.local_node_modules_dir / ".bin" / "codex"
+    local_codex_bin.parent.mkdir(parents=True)
+    local_codex_bin.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    local_codex_bin.chmod(0o755)
+    truncated_native = tmp_path / "truncated-native"
+    truncated_native.write_bytes(b"\x7fELF")
+    executed = False
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.local_codex_native_binary_paths",
+        lambda _config: [truncated_native],
+    )
+
+    def fail_run(*args, **kwargs):
+        nonlocal executed
+        executed = True
+        raise AssertionError("native executable must not run")
+
+    monkeypatch.setattr("codex_wrangler.operations.run_command", fail_run)
+
+    with pytest.raises(CodexWranglerError, match="beyond"):
+        verify_local_codex_binary(config)
+
+    assert executed is False
+
+
+def test_inspect_native_payload_record_preserves_invalid_file_size(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    """Retain the observed byte count alongside a native validation error."""
+
+    config = config_factory(tmp_path)
+    truncated_native = tmp_path / "truncated-native"
+    truncated_native.write_bytes(b"\x7fELF")
+    monkeypatch.setattr(
+        "codex_wrangler.operations.local_codex_native_binary_paths",
+        lambda _config: [truncated_native],
+    )
+
+    records = inspect_local_codex_native_payloads(config)
+
+    assert records[0]["valid"] is False
+    assert records[0]["file_size"] == 4
+    assert "beyond" in records[0]["error"]
+
+
+def test_gather_inspection_report_surfaces_invalid_native_payload(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    """Expose structural native failures as actionable inspection issues."""
+
+    config = config_factory(tmp_path)
+    monkeypatch.setattr(
+        "codex_wrangler.operations.detect_npm_binaries",
+        lambda: ("npm", "npx"),
+    )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.collect_runtime_diagnostics",
+        lambda *args, **kwargs: {
+            "resolved_commands": {
+                "node": {"found": True},
+                "npm": {"found": True},
+                "npx": {"found": True},
+            },
+            "selector_alignment": {
+                "status": "not_applicable",
+                "summary": "No selectors detected.",
+                "signals_present": False,
+            },
+            "package_manager_declaration": None,
+        },
+    )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.inspect_local_codex_native_payloads",
+        lambda _config: [
+            {
+                "path": str(tmp_path / "native"),
+                "exists": True,
+                "valid": False,
+                "format": "ELF64",
+                "file_size": 8_388_608,
+                "declared_extent": 219_552_440,
+                "error": "declared extent reaches beyond EOF",
+            }
+        ],
+    )
+
+    report = gather_inspection_report(config)
+
+    assert report["state"]["local_codex_native_payloads_valid"] is False
+    assert any(
+        "native Codex payload validation failed" in issue for issue in report["issues"]
+    )
 
 
 def test_gather_inspection_report_surfaces_warnings_and_metadata_mismatch(
@@ -722,6 +831,8 @@ def test_selftest_reports_audit_command_failure(
                 "launcher_exists": True,
                 "local_codex_bin_exists": True,
                 "local_codex_bin_executable": True,
+                "local_codex_native_payloads": [],
+                "local_codex_native_payloads_valid": True,
                 "node_found": True,
                 "npm_found": True,
                 "npx_found": True,
@@ -761,6 +872,10 @@ def test_selftest_reports_audit_command_failure(
 
     assert exit_code == 1
     assert "[PASS] runtime_selector_alignment -" in output
+    assert (
+        "[PASS] local_codex_native_payloads_valid - native Codex payloads "
+        "passed declared-extent validation"
+    ) in output
     assert "[FAIL] npm_audit_clean - network unavailable" in output
     assert "Self-test failed." in output
 
@@ -803,6 +918,8 @@ def test_selftest_reports_invalid_audit_json(
                 "launcher_exists": True,
                 "local_codex_bin_exists": True,
                 "local_codex_bin_executable": True,
+                "local_codex_native_payloads": [],
+                "local_codex_native_payloads_valid": True,
                 "node_found": True,
                 "npm_found": True,
                 "npx_found": True,
@@ -837,3 +954,256 @@ def test_selftest_reports_invalid_audit_json(
 
     assert exit_code == 1
     assert "[FAIL] npm_audit_clean - npm audit returned invalid JSON:" in output
+
+
+def test_selftest_skips_launcher_commands_after_native_validation_failure(
+    monkeypatch,
+    tmp_path,
+    capsys,
+    config_factory,
+):
+    """Do not invoke the launcher after inspection rejects a native payload."""
+
+    config = config_factory(tmp_path, operation="selftest")
+    monkeypatch.setattr(
+        "codex_wrangler.operations.detect_npm_binaries",
+        lambda: ("npm", "npx"),
+    )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.gather_inspection_report",
+        lambda _config: {
+            "runtime_environment": {
+                "resolved_commands": {
+                    "node": {"found": True},
+                    "npm": {"found": True},
+                    "npx": {"found": True},
+                },
+                "selector_alignment": {
+                    "status": "match",
+                    "summary": "Runtime selector matches.",
+                },
+            },
+            "state": {
+                "metadata_exists": True,
+                "launcher_matches_expected": True,
+                "readme_matches_expected": True,
+                "gitignore_managed_block_present": True,
+                "installed_codex_version_in_lockfile": "0.152.1",
+                "launcher_exists": True,
+                "local_codex_bin_exists": True,
+                "local_codex_bin_executable": True,
+                "local_codex_native_payloads": [
+                    {"error": "ELF64 segment ends beyond its 8388608-byte file"}
+                ],
+                "local_codex_native_payloads_valid": False,
+                "node_found": True,
+                "npm_found": True,
+            },
+        },
+    )
+    commands = []
+
+    class Completed:
+        stdout = '{"metadata":{"vulnerabilities":{"total":0}}}'
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[:2] == ["npm", "audit"]:
+            return Completed()
+        raise AssertionError("launcher command must not run: {}".format(command))
+
+    monkeypatch.setattr("codex_wrangler.operations.run_command", fake_run)
+
+    exit_code = selftest_operation(config)
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert commands == [
+        ["npm", "audit", "--prefix", str(config.layout.local_dir), "--json"]
+    ]
+    assert "[FAIL] local_codex_native_payloads_valid" in output
+    assert "launcher verification commands were skipped" in output
+
+
+def test_repair_refuses_unproven_install_before_cleanup(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    config = config_factory(
+        tmp_path,
+        operation="repair",
+        codex_selector="0.152.1",
+        codex_version="0.152.1",
+        repair_install=True,
+    )
+    arbitrary_tree = config.layout.local_node_modules_dir
+    arbitrary_tree.mkdir(parents=True)
+    sentinel = arbitrary_tree / "operator-owned.txt"
+    sentinel.write_text("retain\n", encoding="utf-8")
+    called = {"detect_npm": False}
+
+    def fail_detect_npm():
+        called["detect_npm"] = True
+        raise AssertionError("npm discovery must follow ownership proof")
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.detect_npm_binaries",
+        fail_detect_npm,
+    )
+
+    with pytest.raises(CodexWranglerError, match="Cannot prove"):
+        install_like_operation(config)
+
+    assert called["detect_npm"] is False
+    assert sentinel.read_text(encoding="utf-8") == "retain\n"
+
+
+def test_repair_refuses_copied_metadata_before_cleanup(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    source_config = config_factory(
+        source_root,
+        codex_selector="0.152.1",
+        codex_version="0.152.1",
+    )
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    config = config_factory(
+        target_root,
+        operation="repair",
+        codex_selector="0.152.1",
+        codex_version="0.152.1",
+        repair_install=True,
+    )
+    config.layout.local_dir.mkdir()
+    config.layout.metadata_path.write_text(
+        json.dumps(build_metadata(source_config)),
+        encoding="utf-8",
+    )
+    config.layout.local_node_modules_dir.mkdir()
+    sentinel = config.layout.local_node_modules_dir / "operator-owned.txt"
+    sentinel.write_text("retain\n", encoding="utf-8")
+
+    def fail_detect_npm():
+        raise AssertionError("npm discovery must follow ownership proof")
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.detect_npm_binaries",
+        fail_detect_npm,
+    )
+
+    with pytest.raises(CodexWranglerError, match="Cannot prove"):
+        install_like_operation(config)
+
+    assert sentinel.read_text(encoding="utf-8") == "retain\n"
+
+
+def test_repair_reinstalls_exact_version_and_preserves_context(
+    monkeypatch,
+    tmp_path,
+    config_factory,
+):
+    config = config_factory(
+        tmp_path,
+        operation="repair",
+        codex_selector="0.152.1",
+        codex_channel="stable",
+        codex_version="0.152.1",
+        version_source="repair evidence: managed package-lock.json",
+        repair_install=True,
+    )
+    materialize_managed_install(config)
+    stale_payload = config.layout.local_node_modules_dir / "truncated-payload"
+    stale_payload.write_text("damaged\n", encoding="utf-8")
+    npx_cache = config.layout.local_dir / ".npm-cache" / "_npx"
+    npx_cache.mkdir(parents=True)
+    (npx_cache / "stale").write_text("damaged\n", encoding="utf-8")
+    cache_tmp = config.layout.local_dir / ".npm-cache" / "_cacache" / "tmp"
+    cache_tmp.mkdir(parents=True)
+    (cache_tmp / "partial-tarball").write_text("damaged\n", encoding="utf-8")
+
+    protected = {
+        config.layout.codex_home_dir
+        / ".codex"
+        / "sessions"
+        / "rollout.jsonl": "session history\n",
+        config.layout.codex_home_dir / ".codex" / "memories" / "project.md": "memory\n",
+        tmp_path / ".codex" / "project-context.md": "context\n",
+        tmp_path / ".agents" / "state.json": "agent state\n",
+        tmp_path / ".local" / "FieldManual-localconfig.toml": "local config\n",
+    }
+    for path, content in protected.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    original_launcher = config.layout.launcher_path.read_text(encoding="utf-8")
+    original_readme = config.layout.readme_path.read_text(encoding="utf-8")
+    called = {"npm_install": False, "verify": False}
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.detect_npm_binaries",
+        lambda: ("npm", "npx"),
+    )
+    monkeypatch.setattr(
+        "codex_wrangler.operations.ensure_command_exists",
+        lambda _name: None,
+    )
+
+    def fail_resolve(*_args, **_kwargs):
+        raise AssertionError("repair must not resolve a registry selector")
+
+    monkeypatch.setattr(
+        "codex_wrangler.operations.resolve_install_version",
+        fail_resolve,
+    )
+
+    def fake_run(command, cwd, capture_output=False, env=None, timeout_seconds=None):
+        called["npm_install"] = True
+        assert command == [
+            "npm",
+            "install",
+            "--prefix",
+            str(config.layout.local_dir),
+            "--no-audit",
+            "--no-fund",
+            "--foreground-scripts",
+            "--loglevel=http",
+            "--progress=false",
+        ]
+        assert cwd == str(tmp_path)
+        assert env["NPM_CONFIG_CACHE"] == str(config.layout.local_dir / ".npm-cache")
+        assert timeout_seconds == config.npm_timeout_seconds
+        assert not config.layout.local_node_modules_dir.exists()
+        assert not config.layout.local_package_lock_path.exists()
+        assert not npx_cache.exists()
+        assert not cache_tmp.exists()
+        package_manifest = json.loads(
+            config.layout.local_package_json_path.read_text(encoding="utf-8")
+        )
+        assert package_manifest["devDependencies"]["@openai/codex"] == "0.152.1"
+        for path, content in protected.items():
+            assert path.read_text(encoding="utf-8") == content
+
+    def fake_verify(_config):
+        called["verify"] = True
+
+    monkeypatch.setattr("codex_wrangler.operations.run_command", fake_run)
+    monkeypatch.setattr(
+        "codex_wrangler.operations.verify_local_codex_binary",
+        fake_verify,
+    )
+
+    exit_code = install_like_operation(config)
+
+    assert exit_code == 0
+    assert called == {"npm_install": True, "verify": True}
+    assert config.layout.launcher_path.read_text(encoding="utf-8") == original_launcher
+    assert config.layout.readme_path.read_text(encoding="utf-8") == original_readme
+    for path, content in protected.items():
+        assert path.read_text(encoding="utf-8") == content

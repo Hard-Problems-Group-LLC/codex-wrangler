@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from typing import Any, Dict, Optional
 
 from .constants import (
@@ -82,6 +83,9 @@ def build_gitignore_block(layout: Layout) -> str:
 def build_launcher_preflight_lines() -> list[str]:
     """Return the shell preflight block embedded in the launcher."""
 
+    repair_guidance = (
+        'Run a known-good {} command with --repair \\"$repo_root\\".'
+    ).format(SCRIPT_NAME)
     return [
         'preflight_mode="${CODEX_LOCAL_PREFLIGHT:-warn}"',
         'preflight_prefix="[codex-local] preflight"',
@@ -128,6 +132,25 @@ def build_launcher_preflight_lines() -> list[str]:
         "",
         'if [[ ! -x "$local_codex_bin" ]]; then',
         '  preflight_fail "Local Codex executable is missing or not executable: $local_codex_bin. Re-run codex-wrangler install or upgrade for this project."',
+        "fi",
+        "",
+        'local_codex_health_output=""',
+        'if ! local_codex_health_output="$("$local_codex_bin" --version 2>&1)"; then',
+        '  preflight_fail "Local Codex health check failed before launch. {}"'.format(
+            repair_guidance
+        ),
+        "fi",
+        'local_codex_health_matches="0"',
+        'while IFS= read -r local_codex_health_line || [[ -n "$local_codex_health_line" ]]; do',
+        "  local_codex_health_line=\"${local_codex_health_line%$'\\r'}\"",
+        '  if [[ "$local_codex_health_line" =~ ^codex-cli[[:space:]]+[^[:space:]]+$ ]]; then',
+        '    local_codex_health_matches="$((local_codex_health_matches + 1))"',
+        "  fi",
+        'done <<< "$local_codex_health_output"',
+        'if [[ "$local_codex_health_matches" -ne 1 ]]; then',
+        '  preflight_fail "Local Codex health check returned unexpected version output. {}"'.format(
+            repair_guidance
+        ),
         "fi",
         "",
         'if [[ "$preflight_mode" != "off" ]]; then',
@@ -458,6 +481,24 @@ def build_local_readme_content(config: Config) -> str:
         "",
         "```bash",
         "{} --selftest .".format(SCRIPT_NAME),
+        "```",
+        "",
+        "## Repair The Managed Install",
+        "",
+        "If the local Codex executable or npm package tree is damaged, run a",
+        "known-good `{}` command from any other directory. Repair infers the".format(
+            SCRIPT_NAME
+        ),
+        "surviving exact Codex version, rebuilds only managed npm artifacts,",
+        "and preserves project-local context and history under `{}`.".format(
+            config.layout.codex_home_relative
+        ),
+        "",
+        "```bash",
+        "{} --repair {}".format(
+            SCRIPT_NAME,
+            shlex.quote(str(config.project_root)),
+        ),
         "```",
         "",
         "## Refresh Known Versions",

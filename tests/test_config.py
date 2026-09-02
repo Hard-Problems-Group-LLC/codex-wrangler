@@ -1,4 +1,5 @@
 import argparse
+import json
 
 import pytest
 
@@ -18,7 +19,7 @@ from codex_wrangler.constants import (
 )
 from codex_wrangler.layout import resolve_relative_within_root
 from codex_wrangler.models import CodexWranglerError, ExistingState
-from codex_wrangler.rendering import build_local_package_json
+from codex_wrangler.rendering import build_local_package_json, build_metadata
 
 
 class DummyArgs:
@@ -154,6 +155,150 @@ def test_parse_args_rejects_mismatched_install_channel_and_version():
 def test_parse_args_rejects_invalid_npm_timeout():
     with pytest.raises(SystemExit):
         parse_args(["--npm-timeout-seconds", "0"])
+
+
+def test_parse_args_requires_repair_value():
+    with pytest.raises(SystemExit):
+        parse_args(["--repair"])
+
+
+def test_parse_args_requires_absolute_repair_root():
+    with pytest.raises(SystemExit):
+        parse_args(["--repair", "relative/project"])
+
+
+def test_parse_args_rejects_repair_with_positional_root(tmp_path):
+    with pytest.raises(SystemExit):
+        parse_args(["--repair", str(tmp_path), "."])
+
+
+@pytest.mark.parametrize(
+    "incompatible_args",
+    [
+        ["--inspect"],
+        ["--channel", "stable"],
+        ["--version", "0.30.0"],
+        ["--skip-install"],
+        ["--repair-install"],
+        ["--shared-home"],
+        ["--isolated-home"],
+        ["--set-reasonable-permissions"],
+        ["--clear-reasonable-permissions"],
+        ["--local-dir", ".different-local"],
+        ["--codex-home-dir", ".different-home"],
+        ["--launcher", "bin/other"],
+        ["--readme-local", "OTHER.md"],
+    ],
+)
+def test_parse_args_rejects_incoherent_repair_options(tmp_path, incompatible_args):
+    with pytest.raises(SystemExit):
+        parse_args(["--repair", str(tmp_path), *incompatible_args])
+
+
+def test_config_from_args_builds_exact_version_repair(tmp_path, monkeypatch):
+    local_dir = tmp_path / ".codex-local"
+    local_dir.mkdir()
+    (local_dir / "package.json").write_text(
+        build_local_package_json("0.31.0-beta.2"),
+        encoding="utf-8",
+    )
+    elsewhere = tmp_path / "spare-codex-wrangler-checkout"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    config = config_from_args(parse_args(["--repair", str(tmp_path)]))
+
+    assert config.operation == "repair"
+    assert config.project_root == tmp_path.resolve()
+    assert config.codex_selector == "0.31.0-beta.2"
+    assert config.codex_channel == "beta"
+    assert config.codex_version == "0.31.0-beta.2"
+    assert config.repair_install is True
+    assert config.version_source == "repair evidence: managed package.json"
+
+
+def test_config_from_args_repair_refuses_selector_only_evidence(tmp_path):
+    local_dir = tmp_path / ".codex-local"
+    local_dir.mkdir()
+    (local_dir / "package.json").write_text(
+        build_local_package_json("latest"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodexWranglerError, match="no surviving exact Codex version"):
+        config_from_args(parse_args(["--repair", str(tmp_path)]))
+
+
+def test_config_from_args_repair_refuses_conflicting_versions(tmp_path):
+    local_dir = tmp_path / ".codex-local"
+    local_dir.mkdir()
+    (local_dir / "package.json").write_text(
+        build_local_package_json("0.30.0"),
+        encoding="utf-8",
+    )
+    (local_dir / "package-lock.json").write_text(
+        '{"packages":{"node_modules/@openai/codex":{"version":"0.31.0"}}}',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodexWranglerError, match="Conflicting exact Codex versions"):
+        config_from_args(parse_args(["--repair", str(tmp_path)]))
+
+
+def test_config_from_args_repair_ignores_copied_metadata_when_manifest_is_managed(
+    tmp_path,
+    config_factory,
+):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    source_config = config_factory(
+        source_root,
+        codex_selector="0.30.0",
+        codex_version="0.30.0",
+    )
+    target_root = tmp_path / "target"
+    target_root.mkdir()
+    target_local = target_root / ".codex-local"
+    target_local.mkdir()
+    (target_local / ".codex-wrangler.json").write_text(
+        json.dumps(build_metadata(source_config)),
+        encoding="utf-8",
+    )
+    (target_local / "package.json").write_text(
+        build_local_package_json("0.31.0"),
+        encoding="utf-8",
+    )
+
+    config = config_from_args(parse_args(["--repair", str(target_root)]))
+
+    assert config.codex_version == "0.31.0"
+    assert config.version_source == "repair evidence: managed package.json"
+
+
+@pytest.mark.parametrize(
+    "path_name",
+    ["local_dir", "codex_home_dir", "launcher", "readme_local"],
+)
+def test_config_from_args_repair_rejects_mismatched_metadata_paths(
+    tmp_path,
+    config_factory,
+    path_name,
+):
+    source_config = config_factory(
+        tmp_path,
+        codex_selector="0.31.0",
+        codex_version="0.31.0",
+    )
+    metadata = build_metadata(source_config)
+    metadata["paths"][path_name] = "mismatched-path"
+    source_config.layout.local_dir.mkdir()
+    source_config.layout.metadata_path.write_text(
+        json.dumps(metadata),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CodexWranglerError, match="Cannot prove"):
+        config_from_args(parse_args(["--repair", str(tmp_path)]))
 
 
 def test_config_from_args_builds_expected_configuration(tmp_path):

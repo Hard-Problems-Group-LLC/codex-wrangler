@@ -8,6 +8,18 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-09-02T02:19:09-07:00. Persisted truncation of managed native
+  Codex executables could leave package metadata internally consistent while
+  the launcher terminated with a segmentation fault. Root cause: post-install
+  smoke validation was not retained or repeated, inspection trusted metadata
+  without validating executable-format extents, and generated launchers
+  forwarded operator commands without a health gate. Resolution: added
+  portable ELF64, Mach-O64/fat, and PE32+ declared-extent validation before
+  execution, inspection, and self-test; added a launch-time health gate; and
+  added exact-version context-preserving `--repair` guidance and regressions.
+  Details: `closed/truncated-native-payload-not-detected.md`
+
+*
   Resolved: 2026-07-10T04:12:04-07:00. Rocky Linux 10.2 transplant recovery
   could not bootstrap the developer environment or isolated Codex payload
   cleanly. Root cause: bootstrap mutated a user-owned detached pyenv checkout,

@@ -41,6 +41,19 @@ Requirements
    The timeout and npm-configuration behavior must remain limited to managed
    `codex-wrangler` subprocesses and must not rewrite target project npm
    configuration files.
+7. Native payload completeness
+   After npm reports a successful install, `codex-wrangler` must locate the
+   expected platform-native Codex executables and validate their declared
+   file-backed extents before executing them. The validation must support the
+   project's 64-bit ELF, Mach-O, and PE targets using Python's standard
+   library. It must not depend on fixed Codex binary sizes or external binary
+   inspection commands. Inspect and self-test operations must report invalid
+   native payloads, and self-test must not execute a payload after structural
+   validation fails. The generated launcher must also run a lightweight
+   `--version` health check before forwarding operator arguments. A failed
+   check or output that does not identify Codex CLI must stop the launch and
+   provide the absolute-project-root `--repair` command as actionable
+   recovery guidance.
 
 Validation
 ----------
@@ -51,3 +64,10 @@ Validation
 - Unit tests must cover rejecting invalid timeout configuration values.
 - Unit tests must cover the default managed install log level and override.
 - Unit tests must cover repair cleanup for npm cache temp files.
+- Unit tests must cover complete and truncated synthetic ELF64, Mach-O64, fat
+  Mach-O, and PE32+ payloads.
+- Unit tests must prove post-install verification and self-test do not execute
+  a native payload after declared-extent validation fails.
+- Rendering tests must prove the launcher forwards operator arguments only
+  after a successful Codex CLI version response, and stops with repair
+  guidance after failed or unexpected health responses.

@@ -10,6 +10,10 @@ and this repository aims to follow
 
 ### Added
 
+- Added a standalone `--repair /absolute/project/root` operation that proves
+  managed ownership, recovers one unambiguous exact Codex version from
+  surviving target records, and rebuilds only bounded npm artifacts while
+  preserving project-local context and history.
 - Added a transplant-safe bootstrap specification, Rocky Linux 10.2 recovery
   notes, and TheKnowledge ECRs for pinned pyenv ownership plus venv runtime
   symlink preservation.
@@ -110,11 +114,22 @@ and this repository aims to follow
 - Preserve project-local Codex memories during package repair and document the portable Codex recovery model plus upstream TheKnowledge ECRs.
 - Repair and verify the isolated stable Codex 0.144.1 install with clean inspect, self-test, login, and real standard/development bootstrap results, then remove the emergency root npm install.
 
+- Add a standalone absolute-path repair operation that proves managed ownership and exact-version evidence before bounded npm cleanup while preserving context.
+- Validate native Codex payload declared extents during install, inspect, and self-test, and stop generated launchers when their health smoke fails while accepting one complete version line among surrounding diagnostics.
+- Document the recovery contract, close the truncated-payload defect, and add portable format plus repair-safety regressions.
+- Track the completed interrupted-context recovery with a durable Ubersight phase and slice stack.
+
+
 
 
 
 ### Fixed
 
+- Detect truncated ELF64, Mach-O64, fat Mach-O, and PE32+ Codex payloads from
+  their declared file-backed extents before post-install execution, inspection,
+  or self-test launcher calls, and stop generated launchers at a failed health
+  check with absolute-path repair guidance while accepting a valid version line
+  surrounded by CLI diagnostics.
 - Fixed `bootstrap.sh` so it is directly executable from a fresh checkout.
 - Fixed false missing-Black failures caused by resolving a venv Python symlink
   to the sparse underlying pyenv interpreter.

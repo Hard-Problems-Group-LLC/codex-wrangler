@@ -37,6 +37,8 @@ from .layout import (
     read_json_file,
 )
 from .models import CodexWranglerError, Config, SelfTestResult
+from .native_payload import validate_native_payload
+from .repair import build_repair_plan
 from .releases import (
     fetch_available_codex_versions,
     resolve_install_version,
@@ -162,26 +164,45 @@ def local_codex_package_json_path(config: Config) -> Path:
     return config.layout.local_node_modules_dir / "@openai" / "codex" / "package.json"
 
 
-def expected_codex_platform_package_name() -> Optional[str]:
-    """Return the expected `@openai/codex-*` package for this host."""
+def expected_codex_platform_details() -> Optional[tuple[str, str, str]]:
+    """Return the package name, target triple, and executable suffix for this host."""
 
     raw_machine = platform.machine().lower()
     if raw_machine in ("x86_64", "amd64"):
         arch = "x64"
+        target_arch = "x86_64"
     elif raw_machine in ("aarch64", "arm64"):
         arch = "arm64"
+        target_arch = "aarch64"
     else:
         return None
 
     if sys.platform.startswith("linux"):
         family = "linux"
+        target_suffix = "unknown-linux-musl"
+        executable_suffix = ""
     elif sys.platform == "darwin":
         family = "darwin"
+        target_suffix = "apple-darwin"
+        executable_suffix = ""
     elif sys.platform in ("win32", "cygwin", "msys"):
         family = "win32"
+        target_suffix = "pc-windows-msvc"
+        executable_suffix = ".exe"
     else:
         return None
-    return "@openai/codex-{}-{}".format(family, arch)
+    return (
+        "@openai/codex-{}-{}".format(family, arch),
+        "{}-{}".format(target_arch, target_suffix),
+        executable_suffix,
+    )
+
+
+def expected_codex_platform_package_name() -> Optional[str]:
+    """Return the expected `@openai/codex-*` package for this host."""
+
+    details = expected_codex_platform_details()
+    return details[0] if details is not None else None
 
 
 def local_codex_platform_package_json_path(
@@ -194,6 +215,59 @@ def local_codex_platform_package_json_path(
         return None
     scope, name = package_name.split("/", 1)
     return config.layout.local_node_modules_dir / scope / name / "package.json"
+
+
+def local_codex_native_binary_paths(config: Config) -> List[Path]:
+    """Return required and present optional native Codex executable paths."""
+
+    details = expected_codex_platform_details()
+    if details is None:
+        return []
+    package_name, target_triple, executable_suffix = details
+    package_json = local_codex_platform_package_json_path(config, package_name)
+    if package_json is None:
+        return []
+    binary_dir = package_json.parent / "vendor" / target_triple / "bin"
+    paths = [binary_dir / "codex{}".format(executable_suffix)]
+    code_mode_host = binary_dir / "codex-code-mode-host{}".format(executable_suffix)
+    if code_mode_host.exists():
+        paths.append(code_mode_host)
+    return paths
+
+
+def inspect_local_codex_native_payloads(config: Config) -> List[Dict[str, Any]]:
+    """Return structural validation records for expected native executables."""
+
+    records: List[Dict[str, Any]] = []
+    for path in local_codex_native_binary_paths(config):
+        record: Dict[str, Any] = {
+            "path": str(path),
+            "exists": path.exists(),
+            "valid": False,
+            "format": None,
+            "file_size": None,
+            "declared_extent": None,
+            "error": None,
+        }
+        try:
+            record["file_size"] = path.stat().st_size
+        except OSError:
+            pass
+        try:
+            validation = validate_native_payload(path)
+        except CodexWranglerError as exc:
+            record["error"] = str(exc)
+        else:
+            record.update(
+                {
+                    "valid": True,
+                    "format": validation.format_name,
+                    "file_size": validation.file_size,
+                    "declared_extent": validation.declared_extent,
+                }
+            )
+        records.append(record)
+    return records
 
 
 def read_package_version(package_json_path: Path) -> Optional[str]:
@@ -256,6 +330,9 @@ def verify_local_codex_binary(config: Config) -> None:
         raise CodexWranglerError(
             "Local Codex executable is not executable: {}".format(local_codex_bin)
         )
+
+    for native_binary in local_codex_native_binary_paths(config):
+        validate_native_payload(native_binary)
 
     version_result = run_command(
         [str(local_codex_bin), "--version"],
@@ -328,12 +405,25 @@ def install_like_operation(config: Config) -> int:
     if config.reconfigure_only:
         resolved_config = config
     else:
+        if config.operation == "repair":
+            repair_plan = build_repair_plan(config.layout)
+            if config.codex_version != repair_plan.codex_version:
+                raise CodexWranglerError(
+                    "Repair configuration selected {}, but target evidence "
+                    "selects {}. Nothing was removed; rebuild configuration "
+                    "from the target before retrying.".format(
+                        config.codex_version,
+                        repair_plan.codex_version,
+                    )
+                )
         npm_name, _ = detect_npm_binaries()
         ensure_command_exists("node")
         ensure_command_exists(npm_name)
 
         if config.operation == "upgrade":
             resolved_config = resolve_upgrade_version(config)
+        elif config.operation == "repair":
+            resolved_config = config
         else:
             resolved_config = resolve_install_version(
                 config,
@@ -365,7 +455,7 @@ def install_like_operation(config: Config) -> int:
     write_text_file(
         resolved_config.layout.local_package_json_path,
         build_local_package_json(resolved_config.codex_version),
-        force=resolved_config.force,
+        force=(resolved_config.force or resolved_config.operation == "repair"),
         dry_run=resolved_config.dry_run,
         managed_content_predicate=local_package_json_looks_managed,
     )
@@ -377,7 +467,7 @@ def install_like_operation(config: Config) -> int:
             "updates managed launcher state."
         )
     elif resolved_config.dry_run:
-        if resolved_config.repair_install:
+        if resolved_config.operation == "repair" or resolved_config.repair_install:
             repair_managed_npm_install(resolved_config)
         eprint(
             "[codex-wrangler] Would set: NPM_CONFIG_CACHE={}".format(
@@ -392,7 +482,7 @@ def install_like_operation(config: Config) -> int:
     elif resolved_config.skip_install:
         eprint("[codex-wrangler] Skipping npm install by request")
     else:
-        if resolved_config.repair_install:
+        if resolved_config.operation == "repair" or resolved_config.repair_install:
             repair_managed_npm_install(resolved_config)
         run_command(
             managed_npm_install_command(resolved_config, npm_name),
@@ -498,6 +588,7 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
         config,
         expected_platform_package,
     )
+    local_native_payloads = inspect_local_codex_native_payloads(config)
     requested_codex_version, local_package_json_parse_error = (
         infer_requested_version_with_error(config.layout.local_package_json_path)
     )
@@ -539,6 +630,9 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
                 if local_platform_package_json is not None
                 else None
             ),
+            "local_codex_native_payloads": [
+                item["path"] for item in local_native_payloads
+            ],
             "metadata": str(config.layout.metadata_path),
             "gitignore": str(config.layout.gitignore_path),
         },
@@ -586,6 +680,12 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
             "installed_codex_platform_package_version": (
                 read_package_version(local_platform_package_json)
                 if local_platform_package_json is not None
+                else None
+            ),
+            "local_codex_native_payloads": local_native_payloads,
+            "local_codex_native_payloads_valid": (
+                all(item["valid"] for item in local_native_payloads)
+                if local_native_payloads
                 else None
             ),
             "installed_codex_version_in_lockfile": installed_lockfile_version,
@@ -640,6 +740,17 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
         issues.append(
             "Expected platform package {} is missing its package.json under "
             "node_modules.".format(state["expected_codex_platform_package"])
+        )
+    if state["local_codex_native_payloads_valid"] is False:
+        native_errors = [
+            item["error"]
+            for item in state["local_codex_native_payloads"]
+            if item["error"]
+        ]
+        issues.append(
+            "Managed native Codex payload validation failed: {}".format(
+                "; ".join(native_errors)
+            )
         )
     if state["launcher_exists"] and not state["launcher_matches_expected"]:
         warnings.append(
@@ -819,6 +930,24 @@ def selftest_operation(config: Config) -> int:
         bool(state.get("local_codex_bin_executable")),
         "local Codex executable is not executable",
     )
+    native_payloads = state.get("local_codex_native_payloads") or []
+    native_payload_errors = [
+        item.get("error") for item in native_payloads if item.get("error")
+    ]
+    native_payloads_valid = state.get("local_codex_native_payloads_valid") is True
+    if native_payload_errors:
+        native_payload_detail = "; ".join(native_payload_errors)
+    elif native_payloads_valid:
+        native_payload_detail = (
+            "native Codex payloads passed declared-extent validation"
+        )
+    else:
+        native_payload_detail = "native Codex payload validation was unavailable"
+    record(
+        "local_codex_native_payloads_valid",
+        native_payloads_valid,
+        native_payload_detail,
+    )
     selector_alignment = runtime_environment["selector_alignment"]
     record(
         "runtime_selector_alignment",
@@ -826,7 +955,11 @@ def selftest_operation(config: Config) -> int:
         selector_alignment["summary"],
     )
 
-    if state["launcher_exists"] and state["launcher_matches_expected"]:
+    if (
+        state["launcher_exists"]
+        and state["launcher_matches_expected"]
+        and state.get("local_codex_native_payloads_valid") is True
+    ):
         try:
             version_result = run_command(
                 [str(config.layout.launcher_path), "--version"],
@@ -862,7 +995,7 @@ def selftest_operation(config: Config) -> int:
         record(
             "launcher_commands_skipped",
             False,
-            "launcher verification commands were skipped because the launcher is not trustworthy",
+            "launcher verification commands were skipped because the launcher or native payload is not trustworthy",
         )
 
     if resolved_commands["npm"]["found"]:

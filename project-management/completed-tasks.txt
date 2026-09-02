@@ -5,6 +5,26 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-09-02T02:19:09-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: preserved the affected project-local Codex context and both involved
+  working trees in verified owner-only compressed archives; established that
+  all 84 rollout transcripts and six SQLite databases were recoverable; traced
+  the segmentation fault to two exact 8 MiB native-file prefixes plus a
+  truncated cached package; reinstalled the authenticated exact Codex version;
+  and resumed the selected live thread without changing any rollout bytes.
+  Added portable native-payload extent validation, a launch-time health gate,
+  and a standalone `--repair /absolute/project/root` operation that proves
+  ownership and exact-version evidence before bounded cleanup while preserving
+  context and history. The health gate accepts one complete version line among
+  surrounding diagnostics while rejecting inline and duplicate claims.
+  Validation: all archives passed gzip and SHA-256 checks; database integrity,
+  quick, and foreign-key checks passed; the repaired target passed exact native
+  digest checks, inspection, self-test, npm audit, launcher version/help, and a
+  controlled live resume; the repository quality gate passed with 221 tests.
+
+*
   Completed: 2026-07-10T04:12:04-07:00.
   Owner: Codex and operator.
   Requestor: operator.

@@ -20,6 +20,7 @@ from .constants import (
 )
 from .layout import build_layout, read_existing_state, resolve_project_root
 from .models import CodexWranglerError, Config, ExistingState
+from .repair import build_repair_plan
 from .releases import infer_codex_channel
 
 MISSING_DASH_FLAG_HINTS = {
@@ -35,6 +36,7 @@ MISSING_DASH_FLAG_HINTS = {
     "launcher": "--launcher",
     "local-dir": "--local-dir",
     "readme-local": "--readme-local",
+    "repair": "--repair",
     "repair-install": "--repair-install",
     "set-reasonable-permissions": "--set-reasonable-permissions",
     "selftest": "--selftest",
@@ -71,6 +73,16 @@ def parse_positive_int(raw_value: str) -> int:
     if value <= 0:
         raise argparse.ArgumentTypeError("value must be a positive integer")
     return value
+
+
+def parse_absolute_project_root(raw_value: str) -> str:
+    """Require repair's target to use explicit absolute-path syntax."""
+
+    if not Path(raw_value).is_absolute():
+        raise argparse.ArgumentTypeError(
+            "--repair requires an absolute project-root path"
+        )
+    return raw_value
 
 
 def validate_channel_version_pair(
@@ -125,6 +137,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         epilog=(
             "Examples:\n"
             "  install latest stable:      codex-wrangler .\n"
+            "  repair an existing install: codex-wrangler --repair /absolute/path/to/project\n"
             "  install latest beta:        codex-wrangler --channel beta .\n"
             "  refresh known versions:     codex-wrangler --update .\n"
             "  upgrade to latest alpha:    codex-wrangler --upgrade --channel alpha .\n"
@@ -137,6 +150,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
 
     operation_group = parser.add_mutually_exclusive_group()
+    operation_group.add_argument(
+        "--repair",
+        dest="repair_project_root",
+        metavar="ABSOLUTE_PROJECT_ROOT",
+        type=parse_absolute_project_root,
+        help=(
+            "Repair an existing managed install at this absolute project-root "
+            "path, preserving project-local Codex context and history."
+        ),
+    )
     operation_group.add_argument(
         "--inspect",
         action="store_true",
@@ -190,7 +213,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "project_root",
         nargs="?",
-        default=".",
+        default=None,
         help="Target project directory. Defaults to the current directory.",
     )
     parser.add_argument(
@@ -219,7 +242,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--local-dir",
-        default=DEFAULT_LOCAL_DIR,
+        default=None,
         help=(
             "Directory, relative to the project root, for the isolated npm "
             "install. Default: {}".format(DEFAULT_LOCAL_DIR)
@@ -227,7 +250,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--codex-home-dir",
-        default=DEFAULT_HOME_DIR,
+        default=None,
         help=(
             "Directory, relative to the project root, for isolated Codex "
             "HOME state when isolation mode is enabled. Default: {}".format(
@@ -237,7 +260,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--launcher",
-        default=str(DEFAULT_LAUNCHER_RELATIVE_PATH),
+        default=None,
         help=(
             "Path, relative to the project root, for the generated launcher. "
             "Default: {}".format(DEFAULT_LAUNCHER_RELATIVE_PATH)
@@ -245,7 +268,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--readme-local",
-        default=DEFAULT_README_FILENAME,
+        default=None,
         help=(
             "Filename, relative to the project root, for the generated local "
             "operator README. Default: {}".format(DEFAULT_README_FILENAME)
@@ -353,6 +376,46 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         args.upgrade = True
         args.channel = "stable"
 
+    if args.repair_project_root is not None and args.project_root is not None:
+        parser.error(
+            "--repair takes the project root as its own value; do not also "
+            "provide a positional project root."
+        )
+
+    repair_incompatible_options = []
+    if args.repair_project_root is not None:
+        if args.channel is not None:
+            repair_incompatible_options.append("--channel")
+        if args.requested_version is not None:
+            repair_incompatible_options.append("--version")
+        if args.skip_install:
+            repair_incompatible_options.append("--skip-install")
+        if args.repair_install:
+            repair_incompatible_options.append("--repair-install")
+        if args.shared_home is not None:
+            repair_incompatible_options.append(
+                "--shared-home" if args.shared_home else "--isolated-home"
+            )
+        if args.set_reasonable_permissions:
+            repair_incompatible_options.append("--set-reasonable-permissions")
+        if args.clear_reasonable_permissions:
+            repair_incompatible_options.append("--clear-reasonable-permissions")
+        if args.local_dir is not None:
+            repair_incompatible_options.append("--local-dir")
+        if args.codex_home_dir is not None:
+            repair_incompatible_options.append("--codex-home-dir")
+        if args.launcher is not None:
+            repair_incompatible_options.append("--launcher")
+        if args.readme_local is not None:
+            repair_incompatible_options.append("--readme-local")
+    if repair_incompatible_options:
+        parser.error(
+            "{} {} not valid with --repair.".format(
+                ", ".join(repair_incompatible_options),
+                "is" if len(repair_incompatible_options) == 1 else "are",
+            )
+        )
+
     if args.update and args.channel:
         parser.error("--channel is not valid with --update.")
     if args.update and args.requested_version is not None:
@@ -383,6 +446,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 def determine_operation(args: argparse.Namespace) -> str:
     """Translate argparse flags into one internal operation string."""
 
+    if args.repair_project_root is not None:
+        return "repair"
     if args.inspect:
         return "inspect"
     if args.selftest:
@@ -533,22 +598,34 @@ def determine_target_selection(
 def config_from_args(args: argparse.Namespace) -> Config:
     """Normalize parsed arguments into the internal configuration model."""
 
-    project_root = resolve_config_project_root(args.project_root)
+    operation = determine_operation(args)
+    raw_project_root = (
+        args.repair_project_root
+        if operation == "repair"
+        else (args.project_root or ".")
+    )
+    project_root = resolve_config_project_root(raw_project_root)
     layout = build_layout(
         project_root=project_root,
-        local_dir_raw=args.local_dir,
-        codex_home_raw=args.codex_home_dir,
-        launcher_raw=args.launcher,
-        readme_raw=args.readme_local,
+        local_dir_raw=args.local_dir or DEFAULT_LOCAL_DIR,
+        codex_home_raw=args.codex_home_dir or DEFAULT_HOME_DIR,
+        launcher_raw=args.launcher or str(DEFAULT_LAUNCHER_RELATIVE_PATH),
+        readme_raw=args.readme_local or DEFAULT_README_FILENAME,
     )
-    operation = determine_operation(args)
     existing = read_existing_state(layout)
     shared_home = determine_shared_home(args, existing)
     reasonable_permissions_enabled = determine_reasonable_permissions(args, existing)
     reconfigure_only = is_reasonable_permissions_reconfigure(args, existing, operation)
-    codex_selector, codex_channel, codex_version, version_source = (
-        determine_target_selection(args, existing, operation)
-    )
+    if operation == "repair":
+        repair_plan = build_repair_plan(layout)
+        codex_selector = repair_plan.codex_version
+        codex_channel = infer_codex_channel(repair_plan.codex_version)
+        codex_version = repair_plan.codex_version
+        version_source = repair_plan.version_source
+    else:
+        codex_selector, codex_channel, codex_version, version_source = (
+            determine_target_selection(args, existing, operation)
+        )
 
     return Config(
         operation=operation,
@@ -564,7 +641,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         version_source=version_source,
         reasonable_permissions_enabled=reasonable_permissions_enabled,
         reconfigure_only=reconfigure_only,
-        repair_install=bool(args.repair_install),
+        repair_install=(operation == "repair" or bool(args.repair_install)),
         npm_timeout_seconds=args.npm_timeout_seconds,
         npm_install_loglevel=args.npm_install_loglevel,
         available_versions=dict(existing.available_versions),
