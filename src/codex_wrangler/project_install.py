@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from codex_wrangler.installer import (
     DEFAULT_BIN_DIR,
@@ -105,7 +105,12 @@ def build_project_install_command(
     raise ValueError("No project install command for mode {}".format(mode))
 
 
-def install_project_package(venv_python: Path, repo_root: Path, mode: str) -> None:
+def install_project_package(
+    venv_python: Path,
+    repo_root: Path,
+    mode: str,
+    env: Optional[Mapping[str, str]] = None,
+) -> None:
     """Install the package into the repo-local virtual environment when needed."""
 
     if mode == "venv-only":
@@ -113,6 +118,7 @@ def install_project_package(venv_python: Path, repo_root: Path, mode: str) -> No
     subprocess.run(
         list(build_project_install_command(venv_python, repo_root, mode)),
         cwd=str(repo_root),
+        env=dict(env) if env is not None else None,
         check=True,
     )
 
@@ -158,7 +164,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     venv_path = resolve_target_venv(args, venv_python)
     bin_dir = args.bin_dir.expanduser().resolve()
     try:
-        install_project_package(venv_python, repo_root, args.mode)
+        # Stage two pins this process to the selected user home.  Snapshot the
+        # inherited policy so pip cannot silently fall back to the caller's
+        # environment if this hook grows more subprocess work later.
+        install_project_package(
+            venv_python,
+            repo_root,
+            args.mode,
+            env=os.environ,
+        )
         launcher_path = manage_project_launcher(
             venv_path,
             mode=args.mode,

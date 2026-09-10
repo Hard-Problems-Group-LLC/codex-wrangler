@@ -18,7 +18,7 @@ Requirements
 1. Explicit absolute target
    `--repair` must take the project root as its own mandatory value. The value
    must be an absolute path to an existing directory above the managed
-   `bin/`, `.codex-local/`, and `.codex-home/` paths. Repair must reject a
+   `bin/`, `.local/codex/`, and `.local/codex-home/` paths. Repair must reject a
    relative value and any additional positional project root so a spare
    `codex-wrangler` executable can safely repair a different checkout without
    depending on its current working directory.
@@ -26,17 +26,21 @@ Requirements
    Repair must reject operation flags and install-selection options that could
    change its meaning, including `--upgrade`, `--update`, `--inspect`,
    `--selftest`, `--uninstall`, `--channel`, `--version`, `--skip-install`,
-   `--repair-install`, HOME-mode changes, permission-default changes, and
-   managed path overrides. Diagnostic npm timeout and log-level options,
-   `--dry-run`, and `--force` may retain their ordinary meanings.
+   `--repair-install`, permission-default changes, and managed path
+   overrides. Diagnostic npm timeout and log-level options, `--dry-run`, and
+   `--force` may retain their ordinary meanings. `--shared-home` or
+   `--isolated-home` is permitted only as recovery authority when no
+   surviving managed record retains HOME mode; it may not change a surviving
+   recorded choice.
 3. Managed ownership proof
    Before removing any artifact, repair must prove that the target contains an
    existing `codex-wrangler`-managed install. Strong proof consists of valid
    current-schema managed metadata whose recorded project root and every
-   canonical managed path match the resolved target layout, or the managed
-   local package manifest. Copied, stale, or layout-mismatched metadata alone
-   must not authorize repair. If neither source can be validated, repair must
-   stop without cleanup or generated-file writes.
+   canonical managed path match the resolved target layout, a validated active
+   slot completion record, or the managed local package manifest. Copied,
+   stale, or layout-mismatched metadata alone must not authorize repair. If no
+   source can be validated, repair must stop without cleanup or generated-file
+   writes.
 4. Exact-version recovery
    Repair must infer the exact installed Codex version from surviving managed
    metadata, lockfile, package manifest, or installed Codex package manifest.
@@ -44,19 +48,44 @@ Requirements
    exact recovery evidence. Conflicting exact versions must stop repair for
    operator review. When no exact version survives, repair must stop rather
    than implicitly upgrading to a current registry version.
+   A valid completion record selected by a valid active pointer is
+   authoritative over stale root projections and the rollback slot. When the
+   pointer or selected completion record is invalid, no active slot is
+   authoritative: repair must aggregate root, incomplete selected-slot, and
+   all completed-slot evidence, then refuse any disagreement. Every weak
+   manifest or lockfile source must be a regular non-link file reached only
+   through non-link ancestors inside its claimed npm prefix.
+   HOME mode and reasonable-permissions state use the same active-first
+   authority rule. Without a valid selected completion record, all surviving
+   root and completed-slot Boolean values must agree. If HOME mode is absent
+   from every authority, repair must require exactly one explicit
+   `--shared-home` or `--isolated-home` choice. Conflicting explicit and
+   surviving choices must stop repair. If reasonable-permissions evidence is
+   absent, repair must conservatively disable that launcher default.
 5. Automatic bounded cleanup
-   A proven repair must automatically apply the existing managed npm repair
-   cleanup before reinstalling the inferred exact version. Cleanup remains
-   limited to `.codex-local/node_modules`, `.codex-local/package-lock.json`,
-   `.codex-local/.npm-cache/_npx`, and
-   `.codex-local/.npm-cache/_cacache/tmp` after the normal path safety checks.
+   A proven repair must reinstall the inferred exact version into a unique
+   candidate outside both fixed slots, validate it, and only then reversibly
+   rename it into inactive `.local/codex/slots/a` or `slots/b`. Cleanup remains
+   limited to unique candidate/cache scratch data after normal path safety
+   checks. The active slot, rollback slot, and legacy root runtime must remain
+   untouched until the candidate succeeds and is atomically promoted. A repair
+   of one malformed pointer or incomplete selected slot must quarantine rather
+   than delete any fixed-slot tree displaced after validation.
 6. Protected context and history
-   Repair must never delete or recreate `.codex-home`, `.codex`, `.agents`,
-   `.local`, project source, ad hoc backups, or any context, authentication,
-   sessions, memories, history, logs, goals, or other assistant state stored
-   outside the bounded managed npm cleanup paths. Existing managed launcher,
-   README, metadata, and ignore records may be regenerated only after
-   ownership and version inference succeed.
+   Repair must never delete or recreate `.local/codex-home`, the legacy
+   `.codex-home` name, `.codex`, `.agents`, unrelated
+   `.local` contents, project source, ad hoc backups, or any context,
+   authentication, sessions, memories, history, logs, goals, or other
+   assistant state outside the bounded managed npm cleanup paths. In
+   particular, repair must report an absent isolated HOME and stop rather than
+   creating a replacement that could silently sever history; this check must
+   happen before candidate installation. Complete ignore coverage may be
+   atomically published before candidate work. Existing managed launcher,
+   README, and metadata may be regenerated only after the replacement candidate
+   passes validation.
+   Configuration must reject any removable package tree or generated output
+   that contains, equals, or descends into those reserved context roots (and
+   repository `.git` data) before repair performs any mutation.
 7. Standalone execution
    Recovery logic must derive all target paths from the explicit project root
    and target-side managed records. It must not assume that the running
@@ -72,7 +101,9 @@ Validation
 - Parser tests must cover a missing repair value, a relative repair value,
   and an extra positional project root.
 - Configuration tests must cover exact-version inference, no surviving exact
-  version, conflicting exact versions, and unsafe flag combinations.
+  version, conflicting exact versions, active-first HOME authority, concordant
+  fallback aggregation, missing-mode explicit recovery, conflicting HOME
+  overrides, and unsafe flag combinations.
 - Operation tests must prove ownership before cleanup, automatic cleanup and
   exact-version reinstall, and preservation of context/history sentinels.
 - Rendering tests must document the absolute-path standalone recovery command

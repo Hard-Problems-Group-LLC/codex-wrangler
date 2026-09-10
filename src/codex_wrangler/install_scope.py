@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 
-CODEX_HOME_DIRNAME = ".codex-home"
+CODEX_HOME_DIRNAME = ".local/codex-home"
+LEGACY_CODEX_HOME_DIRNAME = ".codex-home"
 
 
 def current_home() -> Path:
@@ -45,16 +46,39 @@ def default_pyenv_root(user_home: Optional[Path] = None) -> Path:
     return current_home() / ".pyenv"
 
 
-def repo_local_codex_home(repo_root: Path) -> Path:
-    """Return the expected repo-local Codex home path for one repository."""
+def _resolve_without_staged_link_failure(path: Path) -> Path:
+    """Resolve one path, preserving a lexical identity for loops or failures."""
 
-    return (repo_root / CODEX_HOME_DIRNAME).resolve()
+    try:
+        return path.expanduser().resolve()
+    except (OSError, RuntimeError):
+        return Path(os.path.abspath(str(path.expanduser())))
+
+
+def repo_local_codex_home(repo_root: Path) -> Path:
+    """Return the active canonical or exact staged repo-local Codex HOME."""
+
+    resolved_root = repo_root.expanduser().resolve()
+    canonical = resolved_root / CODEX_HOME_DIRNAME
+    legacy = resolved_root / LEGACY_CODEX_HOME_DIRNAME
+    if canonical.is_symlink():
+        try:
+            exact_staged_link = os.readlink(canonical) == CODEX_HOME_DIRNAME
+        except OSError:
+            exact_staged_link = False
+        if exact_staged_link and legacy.is_dir() and not legacy.is_symlink():
+            return legacy.resolve()
+    return _resolve_without_staged_link_failure(canonical)
 
 
 def is_repo_local_codex_home(user_home: Path, repo_root: Path) -> bool:
     """Return True when one home matches the repository's isolated Codex home."""
 
-    return user_home.expanduser().resolve() == repo_local_codex_home(repo_root)
+    resolved_home = _resolve_without_staged_link_failure(user_home)
+    return resolved_home in {
+        repo_local_codex_home(repo_root),
+        _resolve_without_staged_link_failure(repo_root / LEGACY_CODEX_HOME_DIRNAME),
+    }
 
 
 def describe_user_home_source(
@@ -93,8 +117,43 @@ def resolve_user_home(
     return user_home
 
 
+def user_scope_subprocess_environment(
+    user_home: Path,
+    base_environment: Optional[Mapping[str, str]] = None,
+) -> dict[str, str]:
+    """Return a subprocess environment bounded to one selected user home.
+
+    Explicit user-home selection must control cache and configuration discovery
+    as well as output paths.  In particular, an installer launched from a
+    project-local AI home must not let pip or another child process reuse that
+    caller's XDG directories.
+    """
+
+    environment = dict(os.environ if base_environment is None else base_environment)
+    for name in tuple(environment):
+        if name.startswith("XDG_"):
+            environment.pop(name)
+    environment.pop("CODEX_HOME", None)
+    environment.pop("CLAUDE_CONFIG_DIR", None)
+
+    resolved_home = user_home.expanduser().resolve()
+    cache_home = resolved_home / ".cache"
+    environment.update(
+        {
+            "HOME": str(resolved_home),
+            "XDG_CONFIG_HOME": str(resolved_home / ".config"),
+            "XDG_CACHE_HOME": str(cache_home),
+            "XDG_STATE_HOME": str(resolved_home / ".local" / "state"),
+            "XDG_DATA_HOME": str(resolved_home / ".local" / "share"),
+            "PIP_CACHE_DIR": str(cache_home / "pip"),
+        }
+    )
+    return environment
+
+
 __all__ = [
     "CODEX_HOME_DIRNAME",
+    "LEGACY_CODEX_HOME_DIRNAME",
     "current_home",
     "default_pyenv_root",
     "default_tool_venv",
@@ -104,4 +163,5 @@ __all__ = [
     "is_repo_local_codex_home",
     "repo_local_codex_home",
     "resolve_user_home",
+    "user_scope_subprocess_environment",
 ]

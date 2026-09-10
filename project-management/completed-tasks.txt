@@ -5,6 +5,107 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-09-10T05:04:01-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: completed canonical `.local/codex` and `.local/codex-home`
+  migration, exact-evidence repair, transactional A/B maintenance, bounded
+  progress, and cache/workspace containment. Live dog-food exposed legitimate
+  links inside disposable npm scratch; exact scratch roots are now no-follow
+  purged while the remaining cache is strict, and each install/audit/lookup/
+  candidate phase gets fresh materialized HOME/XDG/temp state. Self-test
+  refuses mixed audit snapshots. Final audit also closed external-repository
+  submodule-link escape and absent casefold path-alias hazards; independent
+  repair/uninstall review found no remaining Critical or High issue.
+  Preservation: retained the mode-0600, 789,523,646-byte pre-migration archive
+  at `.local/codex-wrangler-migration-backups/`; zstd integrity and SHA-256
+  `86d1d87fe1fc1d7d98bdfba1f51e124e657a55d2c570cdded7c25e91e7b62e08`
+  are verified without inspecting context contents. Active slot A, rollback B,
+  and context HOME retain identities `65024:18622624`, `65024:18622548`, and
+  `65024:17048768`; slot B completion hash remains
+  `08d260a1c337664d26281876f3a84605d9f1d729bd6155ad10c2fa59ac`.
+  Dog-food: canonical inspection reports zero issues/warnings, both slots have
+  valid completion evidence, Codex remains stable `0.154.0`, and networked
+  self-test/npm audit passes with zero vulnerabilities. Validation: Black,
+  Ruff, compileall, diff check, entropy (292 files, zero findings), tripwire,
+  80 focused operations tests, 113 combined bootstrap/config tests, and all 481
+  repository tests pass. The same-UID pathname check-to-use class remains
+  explicitly tracked for directory-FD hardening.
+
+*
+  Completed: 2026-09-10T03:04:21-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: moved the managed Codex runtime and isolated HOME from the legacy
+  flat names to canonical `.local/codex` and `.local/codex-home` roots by
+  atomic directory/link exchange, retaining exact old-name compatibility
+  symlinks and the original runtime/HOME inodes. Added automatic discovery and
+  power-loss recovery for legacy non-A/B, current A/B, staged, and partial
+  states; exact ownership checks; a migration-only bridge launcher; and
+  symlink-aware ignore rules. Independent review also closed unowned-root
+  adoption, unverified inactive-slot retirement, and parseable-only uninstall
+  authority gaps. A protected compressed pre-migration archive remains
+  verified and owner-only.
+  Dogfood: migrated the live project without npm activity, refreshed upstream
+  channels through disposable lookup state, transactionally upgraded stable
+  Codex 0.151.0 to 0.154.0 in inactive slot A, and proved slot B's complete
+  29-entry content manifest, inode, runtime inode, and HOME inode were
+  unchanged. Both slots remain valid, inspection reports zero issues and
+  warnings, compatibility links are ignored by Git, standalone repair dry-run
+  selects exact 0.154.0, and self-test/npm audit pass with zero vulnerabilities.
+  Validation: 372 pytest tests, Black, Ruff, compileall, diff check, entropy
+  scan (292 files, zero findings), and entropy tripwire all pass. A remaining
+  out-of-band pathname-swap race is recorded for directory-FD hardening.
+
+*
+  Completed: 2026-09-10T01:29:49-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: completed the dual-wrangler power-loss recovery and live A/B
+  rollout. Preserved four owner-only verified rollback archives; deployed the
+  repaired Codex and Claude user commands; promoted independent slot B
+  runtimes in this project and in claude-wrangler; and retained each prior slot
+  A with its original inode and complete file/symlink hashes. Both project-local
+  context roots retained their original inodes, Claude HOME remained empty,
+  the project-local Node binary retained its checksum, and explicit-home
+  deployments left the invoking Codex pip-cache fingerprint unchanged.
+  TheKnowledge remains at reviewed upstream commit 751a52a in both projects.
+  Validation: both Codex installations and the Claude installation report zero
+  inspection issues and warnings and pass deployed self-tests with clean npm
+  audits. The full source gates pass with 336 Codex tests and 264 Claude tests,
+  plus Black, Ruff, compileall, entropy, and tripwire checks.
+
+*
+  Completed: 2026-09-10T01:04:42-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: corrected deployment-dogfood installer isolation so standard,
+  development, venv-only, and low-level user install subprocesses use the
+  selected user's HOME, persistent XDG homes, and pip cache rather than an
+  invoking project-local AI home. Replaced unconditional recursive submodule
+  reconciliation with initialize-only direct and nested traversal that keeps
+  existing aligned or divergent checkouts at their current commits.
+  Validation: targeted Black passed across eight files; Ruff, compileall, and
+  diff checks passed; the focused installer suite passed with 64 tests and the
+  full pytest suite passed with 336 tests, including real nested-Git and pyenv
+  preservation fixtures.
+
+*
+  Completed: 2026-09-10T00:12:09-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: replaced destructive in-place Codex maintenance with transactional
+  A/B prefixes, unique validated candidates, reversible inactive-slot swaps,
+  and an atomic authoritative pointer. Added stable maintenance locking,
+  post-commit reconciliation, protected context-root and projection preflight
+  checks, strict project/layout-bound completion records, bounded npm retry and
+  heartbeat feedback, whole-process-group signal cleanup, read-only A/B
+  inspection, and exact-evidence standalone repair without context deletion.
+  Validation: Black passed across 54 serialized files; Ruff, compileall,
+  entropy (292 files, zero findings), and entropy-tripwire verification passed;
+  the full timeout-wrapped pytest suite passed with 330 tests.
+
+*
   Completed: 2026-09-02T02:19:09-07:00.
   Owner: Codex.
   Requestor: operator.

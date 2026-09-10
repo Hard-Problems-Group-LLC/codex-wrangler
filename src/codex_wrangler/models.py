@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from .constants import DEFAULT_NPM_INSTALL_LOGLEVEL, DEFAULT_NPM_TIMEOUT_SECONDS
 
@@ -33,6 +33,19 @@ class Layout:
     gitignore_path: Path
 
 
+@dataclass(frozen=True)
+class LayoutMigration:
+    """One validated transition from historical to canonical defaults."""
+
+    legacy_layout: Layout
+    canonical_layout: Layout
+    state_layout: Layout
+    migrate_local: bool
+    migrate_home: bool
+    local_state: str
+    home_state: str
+
+
 @dataclass
 class Config:
     """Normalized runtime configuration used by the implementation."""
@@ -48,6 +61,7 @@ class Config:
     dry_run: bool
     layout: Layout
     version_source: str
+    layout_migration: Optional[LayoutMigration] = None
     reasonable_permissions_enabled: bool = False
     reconfigure_only: bool = False
     repair_install: bool = False
@@ -55,6 +69,9 @@ class Config:
     npm_install_loglevel: str = DEFAULT_NPM_INSTALL_LOGLEVEL
     available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
     available_versions_updated_at: Optional[str] = None
+    active_slot: Optional[str] = None
+    active_pointer_kind: Optional[str] = None
+    observed_authority_token: Optional[Tuple[Any, ...]] = None
 
 
 @dataclass

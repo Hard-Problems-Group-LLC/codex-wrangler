@@ -55,6 +55,7 @@ DEFAULT_TOOL_VALIDATION_PROFILES: Dict[str, object] = {
             ],
             "defense_in_depth_excluded_dirs": [
                 ".codex-home",
+                ".local",
                 ".codex-local",
                 ".git",
                 ".mypy_cache",

@@ -24,9 +24,11 @@ Requirements
    home directory as an explicit policy decision, not as an unexamined side
    effect of the current process environment.
 2. Isolated-home safeguard
-   When the current `HOME` resolves to the repository's `.codex-home`,
+   When the current `HOME` resolves to the repository's canonical
+   `.local/codex-home` or its exact legacy compatibility path,
    user-scoped installer flows must fail by default instead of silently
-   writing user-local state there.
+   writing user-local state there. Pre-exchange staged migration links must
+   not defeat or crash this detection.
 3. Approved escape hatches
    User-scoped installer flows must support:
    - `--user-home PATH` to target some other user scope explicitly; and
@@ -44,7 +46,15 @@ Requirements
    paths such as `~/.local/bin`, `~/.local/share/.../venv`, and `~/.pyenv`
    from that explicit target home instead of from the current process
    `HOME`.
-6. Documentation
+6. User-scoped subprocess environment
+   Installer child processes, including Git submodule, pyenv, venv, pip,
+   project-hook, and verification children, must receive `HOME`, persistent
+   XDG homes, and `PIP_CACHE_DIR` derived from the selected user home.
+   Inherited `XDG_*`, `CODEX_HOME`, and `CLAUDE_CONFIG_DIR` values must not
+   redirect those children into the invoking AI context. Pyenv-specific
+   environment additions may be merged only while reasserting these selected
+   home boundaries.
+7. Documentation
    User-facing docs must explain the middle-ground trust model:
    repo-local work stays easy, isolated AI homes may be used deliberately, and
    operator-user installs require explicit targeting when the current session
@@ -57,3 +67,5 @@ Validation
 - Help text and docs must mention `--user-home` and `--allow-isolated-home`.
 - Installer success output must identify the selected user home and whether it
   came from the current process or an explicit override.
+- Tests must prove submodule and pyenv children retain their required Git or
+  pyenv settings without recovering the invoking AI home's context paths.

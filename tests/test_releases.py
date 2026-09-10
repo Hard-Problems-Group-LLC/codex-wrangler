@@ -59,6 +59,25 @@ def test_fetch_available_codex_versions_maps_dist_tags(
     }
 
 
+def test_fetch_available_codex_versions_rejects_malformed_supported_tag(
+    monkeypatch,
+    tmp_path,
+):
+    """A malformed secondary tag cannot enter active managed authority."""
+
+    monkeypatch.setattr(
+        "codex_wrangler.releases.fetch_codex_dist_tags",
+        lambda npm_name, project_root, env=None, timeout_seconds=None: {
+            "latest": "0.30.0",
+            "beta": "bogus",
+            "alpha": "0.31.0-alpha.1",
+        },
+    )
+
+    with pytest.raises(CodexWranglerError, match="did not resolve.*exact version"):
+        fetch_available_codex_versions("npm", tmp_path)
+
+
 def test_resolve_install_version_uses_channel_latest_request(
     monkeypatch,
     tmp_path,
@@ -108,6 +127,25 @@ def test_resolve_upgrade_version_uses_known_latest_for_selected_channel(
 
     assert resolved.codex_version == "0.31.0-alpha.1"
     assert resolved.version_source == "known alpha channel from local metadata"
+
+
+def test_resolve_upgrade_version_rejects_corrupt_persisted_catalog_value(
+    tmp_path,
+    config_factory,
+):
+    """A root-only legacy catalog cannot inject a non-version npm spec."""
+
+    config = config_factory(
+        tmp_path,
+        operation="upgrade",
+        codex_selector="latest",
+        codex_channel="stable",
+        codex_version="0.29.0",
+        available_versions={"stable": "file:../../foreign-package"},
+    )
+
+    with pytest.raises(CodexWranglerError, match="not an exact Codex version"):
+        resolve_upgrade_version(config)
 
 
 def test_resolve_upgrade_version_accepts_exact_version_for_selected_channel(

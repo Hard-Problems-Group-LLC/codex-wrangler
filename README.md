@@ -6,8 +6,13 @@ project.
 
 It creates and manages a disciplined local layout:
 
-- `.codex-local/` for the local npm package install and npm cache
-- `.codex-home/` for project-local Codex state when isolation mode is enabled
+- `.local/codex/slots/a` and `slots/b` for isolated A/B npm package prefixes
+- `.local/codex/active` for the atomically selected POSIX runtime, with a
+  strict `active-slot` file fallback on platforms where symlinks are unsuitable
+- `.local/codex/.npm-cache` for the shared project-local npm cache
+- `.codex-wrangler.lock` for a stable, ignored maintenance lock inode that is
+  retained after uninstall to prevent lock-replacement races
+- `.local/codex-home/` for project-local Codex state when isolation mode is enabled
 - `bin/codex-local` as the generated launcher used inside the target project
 - `README-LOCAL-Start-Codex.md` as an ignored local operator guide inside the
   target project
@@ -125,13 +130,22 @@ repository keeps `scripts/install_user_tool.py` in addition to that contract
 because it is also a CLI tool that benefits from a stable user-level command.
 
 When you run the managed installers from a `codex-local` shell that has
-redirected `HOME` into the repository's `.codex-home`, user-scoped effects
+redirected `HOME` into the repository's `.local/codex-home`, user-scoped effects
 are now intentionally explicit. `./install.sh`, `./install.sh --mode dev`,
 `./install.sh --mode venv-only`, and `python3 scripts/install_user_tool.py`
 refuse to target that isolated home silently. In that situation, rerun from a
 normal terminal, pass `--user-home /real/home` to target an operator home
 explicitly, or pass `--allow-isolated-home` when you deliberately want an
 AI-local install rooted in the isolated home.
+
+Once a user home is selected, the managed stage-two flow and the low-level
+user installer run venv, pip, project-install, hook, and verification children
+with `HOME`, the persistent `XDG_*` homes, and `PIP_CACHE_DIR` rooted there.
+They discard inherited `XDG_*` values, including `XDG_RUNTIME_DIR`, plus
+`CODEX_HOME` and `CLAUDE_CONFIG_DIR`, rather than letting an isolated caller
+redirect caches or configuration back into another project. Git submodule and
+pyenv children retain their required command-specific settings while these
+selected-home boundaries remain authoritative.
 
 ## Low-Level User Installer Helper
 
@@ -262,10 +276,35 @@ codex-wrangler --upgrade --channel beta .
 codex-wrangler --upgrade --channel alpha .
 ```
 
+### Canonical layout migration
+
+With implicit default paths, mutating install, update, upgrade, repair, and
+launcher-reconfiguration operations automatically recognize the deprecated
+`.codex-local` runtime and `.codex-home` isolated HOME. Before moving
+anything, the utility proves managed ownership, publishes a bridge launcher,
+and on Linux atomically exchanges each real old directory with an exact
+relative compatibility link to `.local/codex` or
+`.local/codex-home`. Directory identity, A/B slots, active pointers,
+rollback material, and all HOME contents move together; the migration does not
+inspect, copy, merge, or recreate context or history.
+
+Two real trees, foreign links, and an old HOME without full historical
+managed-layout evidence fail closed without changing either path. A valid
+selected slot controls HOME mode; without one, root and completed-slot evidence
+must agree. The locked operation rechecks that authority and rebuilds its plan
+before publishing ignore coverage, a bridge launcher, or either directory
+exchange. Hosts without the required atomic exchange also refuse the move.
+Explicit custom path flags are never reinterpreted as legacy defaults.
+
+`--inspect`, `--selftest`, `--uninstall`, `--skip-install`,
+and every `--dry-run` invocation do not migrate paths.
+`--inspect` exposes a structured `layout_migration` object when a
+supported move is pending.
+
 If a prior npm install was interrupted or a local Codex executable is damaged,
 run `--repair` from a known-good spare `codex-wrangler` command. The project
 root is the mandatory value of `--repair`, must be an absolute path, and must
-name the directory above `bin/`, `.codex-local/`, and `.codex-home/`:
+name the directory above `bin/`, `.local/codex/`, and `.local/codex-home/`:
 
 ```bash
 codex-wrangler --repair /absolute/path/to/project-root
@@ -274,32 +313,60 @@ codex-wrangler --repair /absolute/path/to/project-root
 Repair first proves that the target is an existing managed install and infers
 one exact Codex version from surviving metadata, package manifests, or the
 lockfile. It stops on missing or conflicting exact-version evidence rather
-than resolving `latest` or silently upgrading. The running utility may come
-from another checkout or installation; it does not invoke the damaged target
-launcher.
+than resolving `latest` or silently upgrading. A valid selected slot also
+controls HOME and launcher-permission state; otherwise every surviving root and
+completed-slot value must agree. If HOME mode is absent from all surviving
+authority, repair requires an explicit `--shared-home` or `--isolated-home`
+choice, and that choice cannot override surviving evidence. Missing permission
+evidence defaults to disabled. The running utility may come from another
+checkout or installation; it does not invoke the damaged target launcher.
 
-The operation deliberately targets only canonical managed artifact names:
-`.codex-local/node_modules`, `.codex-local/package-lock.json`,
-`.codex-local/.npm-cache/_npx`, and `.codex-local/.npm-cache/_cacache/tmp`.
-It never removes `.codex-home`, `.codex`, `.agents`, `.local`, project source,
-or ad hoc operator backups such as `.codex-local/node_modules.break-test`.
-Authentication, memories, sessions, rules, history, goals, and other
-project-local Codex context therefore survive package recovery.
+The operation first builds a transaction-unique candidate outside both fixed
+slots. Only after exact-version, platform-package, native-payload, and bounded
+`codex --version` validation does it reversibly rename the candidate into the
+inactive `.local/codex/slots/a` or `slots/b` prefix and atomically change the
+active pointer. A failed, timed-out, or interrupted npm command therefore
+leaves the prior active runtime and generated launcher untouched. The first
+successful A/B migration also retains a legacy root `node_modules` runtime as
+rollback material.
 
-`--repair-install` remains available as a lower-level install or upgrade
-modifier for an operator who has deliberately selected a version/channel. It
-performs the same bounded npm cleanup, but it does not provide `--repair`'s
-managed-ownership proof and exact-version recovery policy:
+If the sole active pointer or selected slot completion record is corrupt,
+repair may replace that pointer only after the candidate validates. Any fixed
+slot displaced during this recovery is retained under a transaction-unique
+retired name for operator recovery; simultaneous pointer forms remain an
+unsafe ambiguity that repair refuses.
+
+Repair may clear only candidate/cache scratch state plus
+`.local/codex/.npm-cache/_npx` and
+`.local/codex/.npm-cache/_cacache/tmp`. Those exact scratch roots must be real
+directories and are removed without following child links; a recursive
+no-follow check then rejects links or special files everywhere else in the
+persistent cache. It never removes `.local/codex-home`, the legacy
+`.codex-home` name, `.codex`, `.agents`, unrelated `.local` contents, project
+source, or ad hoc operator backups. Authentication, memories, sessions, rules,
+history, goals, and other project-local Codex context therefore survive
+package recovery. If a managed isolated HOME is missing, repair reports the
+loss and stops instead of creating a replacement.
+
+`--repair-install` remains as a compatibility modifier for an install or
+upgrade whose version/channel the operator deliberately selected. It uses the
+same normal transaction-unique A/B candidate and does not clear either fixed
+slot in place, but it does not provide `--repair`'s managed-ownership proof or
+exact-version recovery policy:
 
 ```bash
 codex-wrangler --upgrade --channel stable --repair-install .
 ```
 
-Managed npm operations use a 300-second timeout by default. Package
+Managed npm operations use a 300-second timeout by default, emit elapsed-time
+heartbeats every 15 seconds, and retain normal child-process output. Package
 installation disables npm's optional audit, funding, update-notifier, and
-spinner progress behavior, but emits npm HTTP fetch logs plus foreground
-lifecycle-script output for troubleshooting. If a slow network or registry
-needs a longer window, pass `--npm-timeout-seconds <seconds>`. To reduce npm
+spinner progress behavior, enables strict package-engine checks, and uses two
+bounded fetch retries with explicit per-fetch and retry-delay limits.
+Controlled npm configuration is replaced case-insensitively. Exact disposable
+scratch roots are safely purged, and every remaining persistent-cache entry is
+rejected if it is a link or special file. If a slow network or registry needs
+a longer overall window, pass `--npm-timeout-seconds <seconds>`. To reduce npm
 install chatter, pass `--npm-install-loglevel notice`.
 
 Upgrade to one exact version:
@@ -345,35 +412,58 @@ git submodule update --init --recursive
 ```
 
 That ensures the repository's local standards/tooling companion is present.
-The developer bootstrap script runs this automatically.
+The developer bootstrap script runs an initialize-only equivalent
+automatically: missing direct or nested modules are populated, while an
+already-initialized checkout remains at its current commit even when it is
+intentionally ahead of or otherwise different from the parent gitlink. Before
+Git inspection, initialization, and nested recursion, every existing submodule
+path component must be a real directory whose resolved child remains inside its
+own repository; replaced final or ancestor links fail closed.
 
 ## Generated Target-Project Artifacts
 
 When you run `codex-wrangler` against another repository, it manages these
 artifacts inside that target repository:
 
-- `.codex-local/`
-- `.codex-home/` unless `--shared-home` was used
+- `.local/codex/`
+- `.local/codex-home/` unless `--shared-home` was used
+- exact deprecated-name compatibility links at `.codex-local` and
+  `.codex-home` after an automatic migration
 - `bin/codex-local`
 - `README-LOCAL-Start-Codex.md`
-- a marked `.gitignore` block
+- `.codex-wrangler.lock`, a stable ignored serialization inode intentionally
+  retained after uninstall
+- a marked `.gitignore` block (reduced to the stable-lock ignore on uninstall)
 
 ## Runtime Boundary
 
 `codex-wrangler` localizes the `@openai/codex` package install under
-`.codex-local/` and, by default, localizes Codex state under `.codex-home/`.
+`.local/codex/` and, by default, localizes Codex state under `.local/codex-home/`.
 It does not currently install or pin the `node` runtime used by
 `bin/codex-local`, or the `npm` executable used by maintenance commands such
-as install, update, upgrade, audit, and self-test. Managed npm operations set
-`NPM_CONFIG_CACHE` to `.codex-local/.npm-cache` so package installs and npm
-scratch/cache writes stay inside the target project.
+as install, update, upgrade, audit, and self-test. Package install, audit,
+self-test, and candidate checks set `NPM_CONFIG_CACHE` to the project-local
+`.local/codex/.npm-cache`; normal and dry-run registry lookups instead use
+disposable out-of-project caches so discovery cannot create target state.
 
-The generated launcher executes
-`.codex-local/node_modules/.bin/codex "$@"` directly. It intentionally does
-not use `npx codex`, because npm can otherwise fall back to a different
-registry package named `codex` when the managed local binary is missing or
-damaged. The Node.js runtime family still comes from the shell `PATH` that
-launched the command.
+The generated launcher snapshots one strict active pointer, rejects linked or
+incomplete managed roots and escaping executable shims, verifies the selected
+slot's recorded exact version with a 30-second health-check bound, and executes
+the selected `.local/codex/slots/<a|b>/node_modules/.bin/codex` directly.
+Before the first successful A/B promotion it can continue to use a surviving
+pre-slot `.local/codex/node_modules/.bin/codex` runtime. During canonical
+layout migration, the bridge launcher may instead select the exact real
+`.codex-local` tree until its atomic exchange completes. It intentionally
+does not use `npx codex`, because npm can otherwise fall back to a
+different registry package named `codex` when the managed local binary is
+missing or damaged.
+The Node.js runtime family still comes from the shell `PATH` that launched the
+command.
+
+A/B promotion protects startup and maintenance transactions, but fixed slots
+are not immutable generations. Do not perform two successive promotions while
+a Codex process launched before the first promotion may still need auxiliary
+files from its original slot; the second promotion may reuse that slot.
 
 ## Trust and Install Scope
 
@@ -387,7 +477,7 @@ boundary.
   own explicit home directory, not an accidental by-product of whatever
   `HOME` the current session inherited.
 - Operator-user installs remain supported, but when the current `HOME` is the
-  repo-local `.codex-home`, they now require `--user-home /path/to/home`
+  repo-local `.local/codex-home`, they now require `--user-home /path/to/home`
   instead of silently targeting the wrong scope.
 - System installs remain separate and still require `sudo ./install.sh
   --system`.
@@ -409,18 +499,36 @@ inconsistent with the active shell. Use `CODEX_LOCAL_PREFLIGHT=warn`,
 `strict`, or `off` to control the selector-warning behavior.
 
 The launcher also redirects `HOME` and related `XDG_*` paths into
-`.codex-home/` unless `--shared-home` is used. That isolation keeps Codex
+`.local/codex-home/` unless `--shared-home` is used. That isolation keeps Codex
 state project-local, but it can change how tools that consult `HOME` resolve
 their config. `codex-wrangler` intentionally does not mutate the target
 project's own Python or Node configuration files unless some separate
 bootstrap feature is added explicitly.
 
+Package installation, audit, and each candidate health check use a fresh
+mode-0700 workspace under `.local/codex/.maintenance/.run-*`, outside the
+persistent npm cache. Registry queries instead use separate temporary
+out-of-project cache and HOME roots. None of these maintenance subprocesses
+inherit the invoking shell's `HOME`, `CODEX_HOME`, `XDG_*`, `TMPDIR`,
+`TMP`, or `TEMP` context paths, and no maintenance HOME resides inside a
+persistent cache. Mutating operations safely create the pinned disposable home,
+configuration, and private temp directories before a child starts, preventing
+missing-home warnings from invalidating an otherwise healthy candidate. Every
+disposable workspace is removed after its child process exits; dry runs
+likewise keep their preview state temporary.
+
 `codex-wrangler --inspect` and `--selftest` now also report the resolved
 `node`, `npm`, and `npx` paths and versions, detected checked-in Node.js
 selectors, any root `package.json` package-manager declaration, and the
 effective `HOME` and `XDG_*` paths the launcher will expose. They also report
-whether the managed local Codex binary exists and whether the requested,
-lockfile, and installed package versions agree.
+whether the managed local Codex binary exists, which A/B slots are active and
+inactive, legacy-runtime usability, each slot's completion/version evidence,
+transaction debris, which pointer kind selected the runtime, and whether the
+requested, lockfile, and installed package versions agree. Inspection is
+read-only, rejects non-regular diagnostic evidence without blocking on FIFOs,
+and reports if its active-pointer snapshot changes while gathering. Self-test
+also re-resolves the audited runtime under the maintenance lock and refuses a
+mixed report if a concurrent promotion changed the pointer or runtime identity.
 
 ## Safety Notes
 

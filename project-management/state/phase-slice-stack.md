@@ -1,8 +1,8 @@
-# Codex Recovery Phase/Slice Stack
+# Dual-Wrangler Recovery Phase/Slice Stack
 
 Use this tracked file as the recovery anchor for the interrupted local Codex
-incident. Keep it aligned with `.local/ubersight/status.json` at phase and
-slice transitions.
+and Claude installer incident. Keep it aligned with
+`.local/ubersight/status.json` at phase and slice transitions.
 
 Do not record prompts, transcripts, credentials, operator-location details,
 network names, or other sensitive runtime state here.
@@ -12,23 +12,33 @@ network names, or other sensitive runtime state here.
 Phases:
 
 * P1: Evidence preservation, done.
-* P2: Failure isolation, done.
-* P3: Session salvage, done.
-* P4: Runtime repair, done.
-* P5: Resume validation, done.
-* P6: Preventive hardening, done.
-* P7: Recovery handoff, active; Ubersight completion flag set.
+* P2: Upstream reconciliation, done.
+* P3: Codex transactional install, done.
+* P4: Claude transactional install, done.
+* P5: Live runtime recovery, done.
+* P6: Validation and handoff, done.
+* P7: Canonical local layout, done.
+* P8: Canonical migration validation and handoff, done.
 
-Slices in P7:
+Slices:
 
-* S1: Verify archive inventory and checksums, done.
-* S2: Confirm safe resume and repair commands, done.
-* S3: Review final repository state, done.
-* S4: Validate diagnostic-tolerant launcher health gate, done.
+* S1: Specify A/B invariants, done.
+* S2: Implement slot activation, done.
+* S3: Add interruption regressions, done.
+* S4: Run full source validation, done.
+* S5: Dog-food live activation in each owning project, done.
+* S6: Verify context, rollback, installer isolation, and upstream state, done.
+* S7: Specify canonical paths and migration invariants, done.
+* S8: Implement discovery, atomic exchange, and launcher compatibility, done.
+* S9: Add legacy, A/B, partial-state, conflict, and dry-run regressions, done.
+* S10: Run source gates and dog-food migration, done.
 
 ## Current Work
 
-Recovery, preventive hardening, and standalone repair are complete. The final
-target repair, zero-issue inspection, launcher warning-path smoke, and self-test
-pass; the 221-test repository quality gate passes; and the complete session-tree
-hash remains unchanged. No repository changes are staged or committed.
+P8/S10 completed after final adversarial audit. Canonical migration,
+transactional maintenance, standalone repair, cache/workspace containment,
+launcher authority, submodule containment, and cross-platform path disjointness
+are validated. Live A/B/context identities remain unchanged; inspection and
+networked self-test are clean; all 481 tests and required gates pass; independent
+review reports no remaining Critical or High finding. The documented same-UID
+pathname check-to-use class remains deferred for directory-FD hardening.

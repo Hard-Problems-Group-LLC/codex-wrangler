@@ -29,14 +29,19 @@ Requirements
    installation must emit useful troubleshooting progress by default without
    relying on npm's ambiguous spinner. HTTP fetch logs and foreground
    lifecycle-script output satisfy this requirement.
+   While a subprocess remains running, the helper must also emit bounded
+   periodic elapsed-time heartbeats without suppressing child output or
+   extending the overall deadline.
 4. Override
    Operators must be able to adjust the npm timeout and managed install npm
    log level without editing source. Invalid timeout values and unsupported
    log-level values must fail during argument normalization with clear errors.
 5. Repair cleanup
-   Repair mode must remove npm's managed cache temp directory under the
-   project-local cache, because interrupted installs can leave truncated
-   tarballs there and block a clean retry.
+   Repair mode must build a transaction-unique candidate and may clear only
+   transaction-owned candidate scratch plus designated npm cache temporary
+   directories after no-follow path checks. It must not clear either fixed A/B
+   prefix before a validated reversible swap, because interrupted repair could
+   otherwise destroy the active or rollback runtime.
 6. Existing ownership boundaries
    The timeout and npm-configuration behavior must remain limited to managed
    `codex-wrangler` subprocesses and must not rewrite target project npm
@@ -54,20 +59,91 @@ Requirements
    check or output that does not identify Codex CLI must stop the launch and
    provide the absolute-project-root `--repair` command as actionable
    recovery guidance.
+8. Bounded registry retries
+   Managed npm environments must use a small explicit fetch retry count,
+   bounded retry delays, and a per-fetch timeout that remains below the
+   operation's overall hard timeout. Install must enable npm engine-strict
+   handling so a demonstrably incompatible Node.js runtime cannot be
+   promoted.
+9. Terminal-signal cleanup
+   Managed subprocesses must run in their own process group. Keyboard
+   interruption must stop that whole group before returning control. On
+   POSIX, terminal-closing `SIGHUP` and termination `SIGTERM` must likewise
+   stop the complete managed process group, restore the caller's prior signal
+   handlers, and report a clear maintenance error instead of leaving detached
+   npm descendants.
+10. Disposable maintenance environment
+   Registry lookup, package installation, audit, and candidate health-check
+   subprocesses must not inherit the caller's `HOME`, `CODEX_HOME`, or
+   `XDG_*` context paths. Package install, audit, and each candidate check
+   must receive a fresh mode-0700 home and XDG workspace under a
+   transaction-unique `.local/codex/.maintenance/.run-*` directory that is
+   disjoint from the selected persistent `NPM_CONFIG_CACHE`; any other
+   inherited `XDG_*` values must be removed. `TMPDIR`, `TMP`, and `TEMP`
+   must select a materialized private mode-0700 directory inside that fresh
+   workspace rather than an inherited project or operator path. Every registry
+   lookup uses separate temporary out-of-project cache and HOME roots so it cannot
+   create target state before ownership preflight. Scratch state must be
+   removed after its child process group has terminated and must never be
+   reused by a later phase or invocation.
+   Every pinned maintenance home and configuration directory must be safely
+   materialized before an npm lifecycle or candidate health-check subprocess
+   starts so a tool cannot emit a missing-home warning into strict validation.
+   `XDG_RUNTIME_DIR` must remain unset unless a future implementation creates
+   and secures the required runtime directory before starting a subprocess.
+11. Controlled npm configuration
+   Before adding safe uppercase values, managed subprocess environments must
+   strip every controlled `NPM_CONFIG_*` spelling case-insensitively so a
+   lower- or mixed-case inherited value cannot override cache, timeout, retry,
+   engine, audit, or progress policy. Unrelated registry and proxy policy may
+   remain inherited. A persistent project-local npm cache may be used only
+   after each ancestor and each exact disposable scratch root is a real
+   directory. Legacy wrangler maintenance scratch, `_npx`, and
+   `_cacache/tmp` may contain child-created links, so they must be recursively
+   removed without following descendants before a child starts. A subsequent
+   no-follow scan must prove every remaining cache entry is a regular file or
+   real directory, rejecting symbolic links, FIFOs, devices, sockets, and
+   other special files.
 
 Validation
 ----------
 - Unit tests must cover timeout failure reporting from the shared runtime
   helper.
+- A real subprocess test must prove timeout cleanup prevents a grandchild from
+  surviving long enough to perform a delayed write.
+- Unit tests must cover heartbeat output without extending the hard timeout.
 - Unit tests must cover the install command arguments, npm environment, and
   timeout value used for managed package installation.
+- Unit tests must prove inherited `HOME`, `CODEX_HOME`, `XDG_*`, `TMPDIR`,
+  `TMP`, and `TEMP` values do not reach npm lifecycle or candidate health-check
+  subprocesses, including both candidate checks around an inactive-slot rename;
+  a real child must observe private materialized temp state without modifying a
+  protected inherited target.
+- Candidate smoke tests must prove every pinned maintenance directory exists
+  before the candidate executable starts, each install/pre-move/post-move phase
+  receives a distinct clean workspace, and child-created links disappear
+  without modifying their targets.
+- Registry-lookup tests must prove its cache and HOME roots are separate,
+  temporary, out of project, materialized before npm starts, and removed
+  afterward without creating target state.
 - Unit tests must cover rejecting invalid timeout configuration values.
 - Unit tests must cover the default managed install log level and override.
-- Unit tests must cover repair cleanup for npm cache temp files.
+- Unit tests must cover repair cleanup for npm cache temp files without
+  deleting either fixed slot.
+- Unit and real npm tests must prove lower- and mixed-case controlled
+  configuration cannot override the selected cache, while unrelated
+  registry/proxy policy remains available.
+- Cache-safety tests must reject symlink ancestors, linked scratch roots,
+  persistent in-tree links, FIFOs, sockets, and device-like special files.
+  They must also prove that exact real legacy-maintenance, `_npx`, and
+  `_cacache/tmp` roots containing internal links are purged without following
+  them or changing a protected target.
 - Unit tests must cover complete and truncated synthetic ELF64, Mach-O64, fat
   Mach-O, and PE32+ payloads.
 - Unit tests must prove post-install verification and self-test do not execute
-  a native payload after declared-extent validation fails.
+  a native payload after declared-extent validation fails, and self-test must
+  skip audit with explicit retry guidance if its pointer or runtime identity
+  changes after inspection begins.
 - Rendering tests must prove the launcher forwards operator arguments only
   after a successful Codex CLI version response, and stops with repair
   guidance after failed or unexpected health responses.

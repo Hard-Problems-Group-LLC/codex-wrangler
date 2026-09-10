@@ -6,11 +6,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .constants import SCHEMA_VERSION, SCRIPT_NAME
-from .layout import infer_installed_version_from_lockfile, read_json_file
+from .layout import (
+    infer_installed_version_from_lockfile,
+    metadata_looks_managed,
+    read_json_file,
+)
 from .models import CodexWranglerError, Layout
 from .releases import is_exact_version
 from .rendering import local_package_json_looks_managed
+from .slots import (
+    layout_for_slot,
+    observe_repair_runtime,
+    read_slot_metadata,
+    regular_contained_file,
+)
 
 
 @dataclass(frozen=True)
@@ -37,42 +46,6 @@ def read_json_object_if_valid(path: Path) -> Optional[Dict[str, Any]]:
         return None
 
 
-def metadata_looks_managed(
-    payload: Optional[Dict[str, Any]],
-    layout: Layout,
-) -> bool:
-    """Return whether metadata carries the strong managed-install markers."""
-
-    if not payload or payload.get("script_name") != SCRIPT_NAME:
-        return False
-    recorded_schema = payload.get("schema_version")
-    if (
-        not isinstance(recorded_schema, int)
-        or isinstance(recorded_schema, bool)
-        or recorded_schema != SCHEMA_VERSION
-    ):
-        return False
-    recorded_root = payload.get("project_root")
-    if not isinstance(recorded_root, str) or not Path(recorded_root).is_absolute():
-        return False
-    try:
-        canonical_recorded_root = Path(recorded_root).expanduser().resolve()
-    except OSError:
-        return False
-    if canonical_recorded_root != layout.project_root:
-        return False
-    paths = payload.get("paths")
-    if not isinstance(paths, dict):
-        return False
-    expected_paths = {
-        "local_dir": layout.local_dir_relative,
-        "codex_home_dir": layout.codex_home_relative,
-        "launcher": layout.launcher_relative,
-        "readme_local": layout.readme_relative,
-    }
-    return all(paths.get(name) == value for name, value in expected_paths.items())
-
-
 def package_manifest_looks_managed(path: Path) -> bool:
     """Return whether one local package manifest has the managed shape."""
 
@@ -89,6 +62,18 @@ def prove_managed_install(layout: Layout) -> Tuple[str, ...]:
     """Return strong ownership evidence or reject repair before mutation."""
 
     evidence: List[str] = []
+    active = observe_repair_runtime(layout)
+    if active.slot_name is not None:
+        slot_metadata = read_slot_metadata(layout, active.slot_name)
+        if slot_metadata is not None:
+            evidence.append(
+                str(layout_for_slot(layout, active.slot_name).metadata_path)
+            )
+    for slot_name in ("a", "b"):
+        if slot_name == active.slot_name:
+            continue
+        if read_slot_metadata(layout, slot_name) is not None:
+            evidence.append(str(layout_for_slot(layout, slot_name).metadata_path))
     metadata = read_json_object_if_valid(layout.metadata_path)
     if not layout.metadata_path.is_symlink() and metadata_looks_managed(
         metadata, layout
@@ -115,9 +100,11 @@ def installed_package_manifest_path(layout: Layout) -> Path:
     return layout.local_node_modules_dir / "@openai" / "codex" / "package.json"
 
 
-def exact_version_from_package_manifest(path: Path) -> Optional[str]:
+def exact_version_from_package_manifest(prefix: Path, path: Path) -> Optional[str]:
     """Read one exact ``@openai/codex`` package version when available."""
 
+    if not regular_contained_file(prefix, path):
+        return None
     payload = read_json_object_if_valid(path)
     if not payload:
         return None
@@ -128,10 +115,15 @@ def exact_version_from_package_manifest(path: Path) -> Optional[str]:
     return normalized if is_exact_version(normalized) else None
 
 
-def exact_requested_version_from_managed_manifest(path: Path) -> Optional[str]:
+def exact_requested_version_from_managed_manifest(
+    prefix: Path,
+    path: Path,
+) -> Optional[str]:
     """Read an exact requested version from a proven managed package file."""
 
-    if not package_manifest_looks_managed(path):
+    if not regular_contained_file(prefix, path) or not package_manifest_looks_managed(
+        path
+    ):
         return None
     payload = read_json_object_if_valid(path)
     if not payload:
@@ -154,10 +146,73 @@ def append_exact_version(
         candidates.append((source, version))
 
 
+def append_prefix_version_evidence(
+    candidates: List[Tuple[str, str]],
+    evidence_layout: Layout,
+    source_prefix: str,
+) -> None:
+    """Append contained exact package evidence from one npm prefix."""
+
+    prefix = evidence_layout.local_dir
+    manifest_version = exact_requested_version_from_managed_manifest(
+        prefix,
+        evidence_layout.local_package_json_path,
+    )
+    append_exact_version(
+        candidates,
+        "{} package.json".format(source_prefix),
+        manifest_version,
+    )
+    lockfile_version = None
+    if regular_contained_file(prefix, evidence_layout.local_package_lock_path):
+        try:
+            lockfile_version = infer_installed_version_from_lockfile(
+                evidence_layout.local_package_lock_path
+            )
+        except CodexWranglerError:
+            pass
+    append_exact_version(
+        candidates,
+        "{} package-lock.json".format(source_prefix),
+        lockfile_version,
+    )
+    installed_version = exact_version_from_package_manifest(
+        prefix,
+        installed_package_manifest_path(evidence_layout),
+    )
+    append_exact_version(
+        candidates,
+        "{} @openai/codex package.json".format(source_prefix),
+        installed_version,
+    )
+
+
 def collect_exact_version_evidence(layout: Layout) -> List[Tuple[str, str]]:
     """Collect exact Codex versions from all surviving managed records."""
 
     candidates: List[Tuple[str, str]] = []
+    active = observe_repair_runtime(layout)
+    if active.slot_name is not None:
+        evidence_layout = layout_for_slot(layout, active.slot_name)
+        slot_metadata = read_slot_metadata(layout, active.slot_name)
+        if slot_metadata is not None:
+            append_exact_version(
+                candidates,
+                "active slot completion record",
+                slot_metadata.get("codex_version"),
+            )
+            append_prefix_version_evidence(
+                candidates,
+                evidence_layout,
+                "active slot",
+            )
+            return candidates
+        append_prefix_version_evidence(
+            candidates,
+            evidence_layout,
+            "incomplete selected slot",
+        )
+
     metadata = read_json_object_if_valid(layout.metadata_path)
     if not layout.metadata_path.is_symlink() and metadata_looks_managed(
         metadata, layout
@@ -174,27 +229,19 @@ def collect_exact_version_evidence(layout: Layout) -> List[Tuple[str, str]]:
             metadata.get("codex_selector"),
         )
 
-    manifest_version = exact_requested_version_from_managed_manifest(
-        layout.local_package_json_path
-    )
-    append_exact_version(candidates, "managed package.json", manifest_version)
-
-    try:
-        lockfile_version = infer_installed_version_from_lockfile(
-            layout.local_package_lock_path
-        )
-    except CodexWranglerError:
-        lockfile_version = None
-    append_exact_version(candidates, "managed package-lock.json", lockfile_version)
-
-    installed_version = exact_version_from_package_manifest(
-        installed_package_manifest_path(layout)
-    )
-    append_exact_version(
+    append_prefix_version_evidence(
         candidates,
-        "installed @openai/codex package.json",
-        installed_version,
+        layout,
+        "managed root",
     )
+    for slot_name in ("a", "b"):
+        slot_metadata = read_slot_metadata(layout, slot_name)
+        if slot_metadata is not None:
+            append_exact_version(
+                candidates,
+                "completed slot {} record".format(slot_name),
+                slot_metadata.get("codex_version"),
+            )
     return candidates
 
 
@@ -203,6 +250,7 @@ def build_repair_plan(layout: Layout) -> RepairPlan:
 
     repair_write_targets = (
         layout.local_package_json_path,
+        layout.local_package_lock_path,
         layout.metadata_path,
         layout.launcher_path,
         layout.readme_path,

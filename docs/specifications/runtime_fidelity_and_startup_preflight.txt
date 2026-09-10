@@ -21,7 +21,8 @@ Requirements
 ------------
 1. Ownership boundary
    `codex-wrangler` must continue to own only its namespaced artifacts:
-   `.codex-local/`, `.codex-home/`, `bin/codex-local`,
+   `.local/codex/`, `.local/codex-home/`, exact deprecated-name
+   compatibility links, `bin/codex-local`,
    `README-LOCAL-Start-Codex.md`, and its marked `.gitignore` block.
    It must not rewrite the target project's own runtime-selector files such as
    `.nvmrc`, `.node-version`, `.tool-versions`, `package.json`,
@@ -52,13 +53,16 @@ Requirements
    - any `package.json` package-manager declaration in the target project;
    - whether the launcher uses shared or isolated `HOME`; and
    - the effective `HOME` and `XDG_*` paths the launcher will expose.
+   Diagnostic evidence files and native payloads must be opened without
+   following links or blocking on FIFOs and must be rejected unless they remain
+   regular files beneath non-link managed ancestors.
 5. Self-test diagnostics
    `codex-wrangler --selftest` must include the deeper runtime diagnostics and
    fail when an explicit checked-in Node.js selector disagrees with the
    resolved Node.js version. Ambiguous selector signals may warn without
    failing until a stricter reviewed policy is adopted.
 6. Security stance
-   Project-local `.codex-home` isolation remains the default. The tool must
+   Project-local `.local/codex-home` isolation remains the default. The tool must
    improve observability around `HOME` rewriting before changing that default.
    No runtime diagnostic or preflight feature may silently broaden the
    writable surface or bypass the target project's own selector policies.

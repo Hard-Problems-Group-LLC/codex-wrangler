@@ -210,15 +210,22 @@ def test_installer_main_uses_explicit_user_home(
 
     created_commands: list[list[str]] = []
 
-    def fake_ensure_virtualenv(python_executable: str, venv_path: Path) -> Path:
+    def fake_ensure_virtualenv(
+        python_executable: str,
+        venv_path: Path,
+        env,
+    ) -> Path:
         assert venv_path == target_venv
+        assert env["HOME"] == str(operator_home.resolve())
+        assert env["PIP_CACHE_DIR"] == str(operator_home / ".cache" / "pip")
         venv_python = venv_path / "bin" / "python"
         venv_python.parent.mkdir(parents=True, exist_ok=True)
         venv_python.write_text("", encoding="utf-8")
         return venv_python
 
-    def fake_install_build_bootstrap(venv_python: Path) -> None:
+    def fake_install_build_bootstrap(venv_python: Path, env) -> None:
         assert venv_python == target_venv / "bin" / "python"
+        assert env["XDG_CACHE_HOME"] == str(operator_home / ".cache")
 
     def fake_build_install_command(
         python_executable: Path,
@@ -236,9 +243,11 @@ def test_installer_main_uses_explicit_user_home(
             str(candidate_repo_root),
         ]
 
-    def fake_subprocess_run(command: list[str], check: bool) -> None:
+    def fake_subprocess_run(command: list[str], check: bool, env) -> None:
         assert check is True
         assert command[-1] == str(repo_root.resolve())
+        assert env["HOME"] == str(operator_home.resolve())
+        assert env["PIP_CACHE_DIR"] == str(operator_home / ".cache" / "pip")
 
     monkeypatch.setattr(
         "codex_wrangler.installer.ensure_virtualenv", fake_ensure_virtualenv

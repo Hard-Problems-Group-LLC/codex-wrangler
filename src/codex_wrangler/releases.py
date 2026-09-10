@@ -129,11 +129,24 @@ def fetch_available_codex_versions(
         env=env,
         timeout_seconds=timeout_seconds,
     )
-    return {
-        "stable": dist_tags.get("latest"),
-        "beta": dist_tags.get("beta"),
-        "alpha": dist_tags.get("alpha"),
-    }
+    available_versions: Dict[str, Optional[str]] = {}
+    for channel, selector in CHANNEL_TO_SELECTOR.items():
+        raw_version = dist_tags.get(selector)
+        if raw_version is None:
+            available_versions[channel] = None
+            continue
+        version = raw_version.strip()
+        if not is_exact_version(version):
+            raise CodexWranglerError(
+                "npm dist-tag {!r} for {} did not resolve to an exact "
+                "version: {!r}.".format(
+                    selector,
+                    CODEX_PACKAGE_NAME,
+                    raw_version,
+                )
+            )
+        available_versions[channel] = version
+    return available_versions
 
 
 def resolve_explicit_selector_version(
@@ -169,7 +182,15 @@ def resolve_explicit_selector_version(
             "No published version is currently known for the {} channel. Run "
             "`codex-wrangler --update` again later.".format(inferred_channel)
         )
-    return resolved_version
+    if not is_exact_version(resolved_version):
+        raise CodexWranglerError(
+            "Recorded {} channel value is not an exact Codex version: {!r}. "
+            "Run codex-wrangler --update to refresh trusted dist-tags.".format(
+                inferred_channel,
+                resolved_version,
+            )
+        )
+    return resolved_version.strip()
 
 
 def resolve_install_version(
@@ -224,6 +245,15 @@ def resolve_upgrade_version(config: Config) -> Config:
             channel,
             config.available_versions,
         )
+    if not is_exact_version(resolved_version):
+        raise CodexWranglerError(
+            "Recorded {} channel value is not an exact Codex version: {!r}. "
+            "Run codex-wrangler --update to refresh trusted dist-tags.".format(
+                channel,
+                resolved_version,
+            )
+        )
+    resolved_version = resolved_version.strip()
     return replace(
         config,
         codex_version=resolved_version,

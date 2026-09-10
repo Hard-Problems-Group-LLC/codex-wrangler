@@ -2,6 +2,7 @@ from pathlib import Path
 import importlib.util
 import io
 import os
+import subprocess
 from types import SimpleNamespace
 
 from scripts.python_environment_bootstrap import (
@@ -32,6 +33,27 @@ def load_install_stage_2_module():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def run_fixture_git(repo_root, *args):
+    """Run deterministic local Git commands for bootstrap integration fixtures."""
+
+    return subprocess.run(
+        [
+            "git",
+            "-c",
+            "protocol.file.allow=always",
+            "-c",
+            "user.name=Installer Test",
+            "-c",
+            "user.email=installer-test@example.invalid",
+            *args,
+        ],
+        cwd=str(repo_root),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_load_python_environment_config_reads_runtime_selection():
@@ -102,6 +124,424 @@ def test_runtime_context_setup_does_not_install_bootstrap_floor(monkeypatch, tmp
     assert (repo_root / ".python-version").read_text(encoding="utf-8") == "3.14.6\n"
 
 
+def test_runtime_context_runner_reasserts_selected_home_over_pyenv_environment(
+    monkeypatch,
+    tmp_path,
+):
+    module = load_install_stage_2_module()
+    repo_root = tmp_path / "repo"
+    selected_home = tmp_path / "operator"
+    pyenv_root = selected_home / ".pyenv"
+    runtime_python = pyenv_root / "versions" / "3.14.6" / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.write_text("", encoding="utf-8")
+    repo_root.mkdir()
+    runtime = PythonContextConfig("3.12", "3.14.6", "3.14.6")
+    config = SimpleNamespace(bootstrap=runtime, runtime=runtime)
+    observed = {}
+    selected_environment = module.user_scope_subprocess_environment(
+        selected_home,
+        {
+            "HOME": str(tmp_path / "caller" / ".codex-home"),
+            "CODEX_HOME": str(tmp_path / "caller" / ".codex-home" / ".codex"),
+            "XDG_RUNTIME_DIR": str(tmp_path / "caller" / "runtime"),
+            "PATH": "/usr/bin",
+        },
+    )
+
+    monkeypatch.setattr(module, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        module, "load_python_environment_config", lambda selected_root: config
+    )
+    monkeypatch.setattr(
+        module, "default_install_pyenv_root", lambda user_home: pyenv_root
+    )
+    monkeypatch.setattr(module, "ensure_pyenv_installed", lambda root, runner: None)
+
+    def fake_ensure_context(root, context, runner):
+        runner(
+            ["pyenv", "install"],
+            env={
+                "HOME": str(tmp_path / "caller" / ".codex-home"),
+                "CODEX_HOME": str(tmp_path / "caller" / ".codex-home" / ".codex"),
+                "XDG_CONFIG_HOME": str(tmp_path / "caller" / "config"),
+                "XDG_RUNTIME_DIR": str(tmp_path / "caller" / "runtime"),
+                "PIP_CACHE_DIR": str(tmp_path / "caller" / "pip"),
+                "PYENV_ROOT": str(pyenv_root),
+                "PATH": str(pyenv_root / "bin") + os.pathsep + "/usr/bin",
+            },
+        )
+        return context.environment_name
+
+    def fake_run(command, cwd=None, env=None, capture_output=False):
+        observed.update(env)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(module, "ensure_pyenv_context", fake_ensure_context)
+    monkeypatch.setattr(module, "run", fake_run)
+
+    result = module.ensure_runtime_contexts(
+        selected_home,
+        env=selected_environment,
+    )
+
+    assert result == (pyenv_root, "3.14.6", runtime_python)
+    assert observed["HOME"] == str(selected_home.resolve())
+    assert observed["XDG_CONFIG_HOME"] == str(selected_home / ".config")
+    assert observed["PIP_CACHE_DIR"] == str(selected_home / ".cache" / "pip")
+    assert observed["PYENV_ROOT"] == str(pyenv_root)
+    assert observed["PATH"].startswith(str(pyenv_root / "bin") + os.pathsep)
+    assert "CODEX_HOME" not in observed
+    assert "CLAUDE_CONFIG_DIR" not in observed
+    assert "XDG_RUNTIME_DIR" not in observed
+
+
+def test_standard_user_install_threads_selected_home_environment(
+    monkeypatch,
+    tmp_path,
+):
+    module = load_install_stage_2_module()
+    repo_root = tmp_path / "repo"
+    operator_home = tmp_path / "operator"
+    venv_path = operator_home / ".local" / "share" / "tool" / "venv"
+    venv_python = venv_path / "bin" / "python"
+    captured = {}
+    repo_root.mkdir()
+
+    monkeypatch.setattr(module, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        module,
+        "ensure_submodules",
+        lambda skip, env=None: captured.setdefault("submodule_env", env),
+    )
+    monkeypatch.setattr(
+        module,
+        "launcher_dir_for_scope",
+        lambda scope, user_home: operator_home / ".local" / "bin",
+    )
+
+    def fake_ensure_venv(scope, user_home, env=None):
+        captured["venv_env"] = env
+        return venv_path, venv_python, Path("/usr/bin/python")
+
+    def fake_install_project(
+        candidate_python,
+        candidate_venv,
+        mode,
+        scope,
+        bin_dir,
+        env=None,
+    ):
+        captured["project_env"] = env
+
+    def fake_verify(candidate_python, env=None):
+        captured["verify_env"] = env
+
+    monkeypatch.setattr(module, "ensure_standard_install_venv", fake_ensure_venv)
+    monkeypatch.setattr(module, "install_project", fake_install_project)
+    monkeypatch.setattr(module, "verify_install", fake_verify)
+
+    result = module.main(
+        [
+            "--force-direct-run",
+            "--skip-submodule-init",
+            "--user-home",
+            str(operator_home),
+        ]
+    )
+
+    assert result == 0
+    for environment in captured.values():
+        assert environment["HOME"] == str(operator_home.resolve())
+        assert environment["XDG_CACHE_HOME"] == str(operator_home / ".cache")
+        assert environment["PIP_CACHE_DIR"] == str(operator_home / ".cache" / "pip")
+
+
+def test_repo_scope_install_uses_selected_home_for_subprocesses(monkeypatch, tmp_path):
+    module = load_install_stage_2_module()
+    repo_root = tmp_path / "repo"
+    operator_home = tmp_path / "operator"
+    runtime_python = operator_home / ".pyenv" / "versions" / "runtime" / "python"
+    venv_python = repo_root / ".venv" / "bin" / "python"
+    captured = {}
+    repo_root.mkdir()
+
+    monkeypatch.setattr(module, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(
+        module,
+        "ensure_submodules",
+        lambda skip, env=None: captured.setdefault("submodule_env", env),
+    )
+    monkeypatch.setattr(
+        module,
+        "launcher_dir_for_scope",
+        lambda scope, user_home: operator_home / ".local" / "bin",
+    )
+
+    def fake_runtime_contexts(user_home, env=None):
+        captured["runtime_env"] = env
+        return operator_home / ".pyenv", "runtime", runtime_python
+
+    def fake_repo_venv(candidate_python, env=None):
+        captured["venv_env"] = env
+        return venv_python
+
+    def fake_install_project(*args, env=None):
+        captured["project_env"] = env
+
+    def fake_install_hooks(candidate_python, env=None):
+        captured["hooks_env"] = env
+
+    def fake_verify(candidate_python, env=None):
+        captured["verify_env"] = env
+
+    monkeypatch.setattr(module, "ensure_runtime_contexts", fake_runtime_contexts)
+    monkeypatch.setattr(module, "ensure_repo_venv", fake_repo_venv)
+    monkeypatch.setattr(module, "install_project", fake_install_project)
+    monkeypatch.setattr(module, "install_git_hooks", fake_install_hooks)
+    monkeypatch.setattr(module, "verify_install", fake_verify)
+
+    result = module.main(
+        [
+            "--force-direct-run",
+            "--skip-submodule-init",
+            "--skip-shell-init-update",
+            "--mode",
+            "venv-only",
+            "--user-home",
+            str(operator_home),
+        ]
+    )
+
+    assert result == 0
+    for environment in captured.values():
+        assert environment["HOME"] == str(operator_home.resolve())
+        assert environment["PIP_CACHE_DIR"] == str(operator_home / ".cache" / "pip")
+
+
+def test_submodule_init_preserves_advanced_checkout_and_initializes_missing_tree(
+    monkeypatch,
+    tmp_path,
+):
+    module = load_install_stage_2_module()
+    leaf = tmp_path / "leaf"
+    nested = tmp_path / "nested"
+    container = tmp_path / "container"
+    project = tmp_path / "project"
+    for repo_root in (leaf, nested, container, project):
+        repo_root.mkdir()
+        run_fixture_git(repo_root, "init", "--quiet")
+
+    (leaf / "version.txt").write_text("recorded\n", encoding="utf-8")
+    run_fixture_git(leaf, "add", "version.txt")
+    run_fixture_git(leaf, "commit", "--quiet", "-m", "recorded leaf")
+    recorded_leaf = run_fixture_git(leaf, "rev-parse", "HEAD").stdout.strip()
+    (leaf / "version.txt").write_text("advanced\n", encoding="utf-8")
+    run_fixture_git(leaf, "commit", "--quiet", "-am", "advanced leaf")
+    advanced_leaf = run_fixture_git(leaf, "rev-parse", "HEAD").stdout.strip()
+
+    (nested / "nested.txt").write_text("nested\n", encoding="utf-8")
+    run_fixture_git(nested, "add", "nested.txt")
+    run_fixture_git(nested, "commit", "--quiet", "-m", "nested content")
+
+    run_fixture_git(container, "submodule", "add", "--quiet", str(nested), "nested")
+    run_fixture_git(container, "commit", "--quiet", "-am", "add nested module")
+
+    run_fixture_git(project, "submodule", "add", "--quiet", str(leaf), "advanced")
+    run_fixture_git(project / "advanced", "checkout", "--quiet", recorded_leaf)
+    run_fixture_git(
+        project,
+        "submodule",
+        "add",
+        "--quiet",
+        str(container),
+        "missing",
+    )
+    run_fixture_git(project, "commit", "--quiet", "-am", "record submodules")
+    run_fixture_git(project / "advanced", "checkout", "--quiet", advanced_leaf)
+    run_fixture_git(project, "submodule", "deinit", "--force", "--", "missing")
+
+    monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "file")
+    monkeypatch.setattr(module, "REPO_ROOT", project)
+
+    module.ensure_submodules(skip=False)
+
+    assert (
+        run_fixture_git(project / "advanced", "rev-parse", "HEAD").stdout.strip()
+        == advanced_leaf
+    )
+    assert (project / "missing" / "nested" / "nested.txt").read_text(
+        encoding="utf-8"
+    ) == "nested\n"
+
+
+def build_submodule_replacement_fixture(tmp_path, relative_path):
+    """Build a project plus an external repo with a nested submodule."""
+
+    payload = tmp_path / "payload"
+    external_repo = tmp_path / "outside" / "managed"
+    project = tmp_path / "project"
+    external_repo.parent.mkdir()
+    for repo_root in (payload, external_repo, project):
+        repo_root.mkdir()
+        run_fixture_git(repo_root, "init", "--quiet")
+
+    (payload / "payload.txt").write_text("payload\n", encoding="utf-8")
+    run_fixture_git(payload, "add", "payload.txt")
+    run_fixture_git(payload, "commit", "--quiet", "-m", "payload")
+
+    run_fixture_git(
+        external_repo,
+        "submodule",
+        "add",
+        "--quiet",
+        str(payload),
+        "nested",
+    )
+    run_fixture_git(
+        external_repo,
+        "commit",
+        "--quiet",
+        "-am",
+        "add nested module",
+    )
+    run_fixture_git(
+        external_repo,
+        "submodule",
+        "deinit",
+        "--force",
+        "--",
+        "nested",
+    )
+
+    run_fixture_git(
+        project,
+        "submodule",
+        "add",
+        "--quiet",
+        str(external_repo),
+        str(relative_path),
+    )
+    run_fixture_git(
+        project,
+        "commit",
+        "--quiet",
+        "-am",
+        "add managed module",
+    )
+    run_fixture_git(
+        project,
+        "submodule",
+        "deinit",
+        "--force",
+        "--",
+        str(relative_path),
+    )
+    checkout_path = project / relative_path
+    checkout_path.rmdir()
+    return project, external_repo
+
+
+def assert_submodule_replacement_is_refused(
+    module,
+    monkeypatch,
+    project,
+    external_repo,
+    replaced_path,
+):
+    """Prove one path replacement cannot trigger work in an external repo."""
+
+    external_commands = []
+    submodule_commands = []
+    original_run = module.run
+
+    def recording_run(command, cwd=None, env=None, capture_output=False):
+        if list(command[:2]) == ["git", "submodule"]:
+            submodule_commands.append(list(command))
+        if cwd is not None:
+            resolved_cwd = Path(cwd).resolve()
+            try:
+                resolved_cwd.relative_to(external_repo)
+            except ValueError:
+                pass
+            else:
+                external_commands.append(list(command))
+        return original_run(
+            command,
+            cwd=cwd,
+            env=env,
+            capture_output=capture_output,
+        )
+
+    sentinel = external_repo / "external-sentinel.txt"
+    sentinel.write_text("unchanged\n", encoding="utf-8")
+    external_payload = external_repo / "nested" / "payload.txt"
+    assert not external_payload.exists()
+
+    monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "file")
+    monkeypatch.setattr(module, "REPO_ROOT", project)
+    monkeypatch.setattr(module, "run", recording_run)
+
+    try:
+        module.ensure_submodules(skip=False)
+    except RuntimeError as error:
+        message = str(error)
+    else:
+        raise AssertionError("Expected replaced submodule path to be refused.")
+
+    assert "must be a real directory" in message
+    assert str(replaced_path) in message
+    assert submodule_commands == []
+    assert external_commands == []
+    assert sentinel.read_text(encoding="utf-8") == "unchanged\n"
+    assert not external_payload.exists()
+
+
+def test_submodule_init_rejects_final_path_symlink_to_external_repo(
+    monkeypatch,
+    tmp_path,
+):
+    module = load_install_stage_2_module()
+    relative_path = Path("managed")
+    project, external_repo = build_submodule_replacement_fixture(
+        tmp_path,
+        relative_path,
+    )
+    replaced_path = project / relative_path
+    replaced_path.symlink_to(external_repo, target_is_directory=True)
+
+    assert_submodule_replacement_is_refused(
+        module,
+        monkeypatch,
+        project,
+        external_repo,
+        replaced_path,
+    )
+
+
+def test_submodule_init_rejects_ancestor_symlink_to_external_repo(
+    monkeypatch,
+    tmp_path,
+):
+    module = load_install_stage_2_module()
+    relative_path = Path("modules") / "managed"
+    project, external_repo = build_submodule_replacement_fixture(
+        tmp_path,
+        relative_path,
+    )
+    replaced_path = project / "modules"
+    replaced_path.rmdir()
+    replaced_path.symlink_to(external_repo.parent, target_is_directory=True)
+
+    assert_submodule_replacement_is_refused(
+        module,
+        monkeypatch,
+        project,
+        external_repo,
+        replaced_path,
+    )
+
+
 def test_standard_virtualenv_keeps_matching_base_interpreter(monkeypatch, tmp_path):
     module = load_install_stage_2_module()
     base_python = tmp_path / "pyenv" / "bin" / "python"
@@ -114,12 +554,12 @@ def test_standard_virtualenv_keeps_matching_base_interpreter(monkeypatch, tmp_pa
     monkeypatch.setattr(
         module,
         "interpreter_base_identity",
-        lambda executable: Path("/managed/python"),
+        lambda executable, env=None: Path("/managed/python"),
     )
     monkeypatch.setattr(
         module,
         "run",
-        lambda command, cwd: commands.append((list(command), cwd)),
+        lambda command, cwd, env=None: commands.append((list(command), cwd)),
     )
 
     assert module.ensure_virtualenv(base_python, venv_path) == venv_python
@@ -137,7 +577,7 @@ def test_standard_virtualenv_rebuilds_after_base_interpreter_drift(
     venv_python.write_text("", encoding="utf-8")
     commands = []
 
-    def fake_identity(executable):
+    def fake_identity(executable, env=None):
         if executable == base_python:
             return Path("/managed/python")
         return Path("/system/python")
@@ -146,7 +586,7 @@ def test_standard_virtualenv_rebuilds_after_base_interpreter_drift(
     monkeypatch.setattr(
         module,
         "run",
-        lambda command, cwd: commands.append((list(command), cwd)),
+        lambda command, cwd, env=None: commands.append((list(command), cwd)),
     )
 
     assert module.ensure_virtualenv(base_python, venv_path) == venv_python
@@ -215,7 +655,7 @@ def test_install_git_hooks_prefers_repo_local_installer(monkeypatch, tmp_path):
     monkeypatch.setattr(
         module,
         "run",
-        lambda command, cwd: commands.append((list(command), cwd)),
+        lambda command, cwd, env=None: commands.append((list(command), cwd)),
     )
 
     module.install_git_hooks(Path("/tmp/venv/bin/python"))
@@ -240,7 +680,7 @@ def test_install_git_hooks_fallback_targets_repo_root(monkeypatch, tmp_path):
     monkeypatch.setattr(
         module,
         "run",
-        lambda command, cwd: commands.append((list(command), cwd)),
+        lambda command, cwd, env=None: commands.append((list(command), cwd)),
     )
 
     module.install_git_hooks(Path("/tmp/venv/bin/python"))

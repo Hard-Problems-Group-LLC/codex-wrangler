@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import shlex
 from typing import Any, Dict, Optional
 
 from .constants import (
     CODEX_CHANNELS,
+    DEFAULT_HOME_DIR,
     DEFAULT_INSTALL_CODEX_SELECTOR,
+    DEFAULT_LOCAL_DIR,
     DEFAULT_STABLE_CODEX_SELECTOR,
     GITIGNORE_BEGIN,
     GITIGNORE_END,
+    LEGACY_HOME_DIR,
+    LEGACY_LOCAL_DIR,
+    MAINTENANCE_LOCK_FILENAME,
     PREVIEW_DIST_TAG_CANDIDATES,
     README_MARKER,
     SCHEMA_VERSION,
@@ -24,7 +30,7 @@ from .runtime import utc_now_iso
 
 
 def build_local_package_json(codex_version: str) -> str:
-    """Return the deterministic package.json content for `.codex-local/`."""
+    """Return deterministic package.json content for the managed npm root."""
 
     payload = {
         "name": "codex-local-managed-install",
@@ -53,6 +59,8 @@ def build_metadata(config: Config) -> Dict[str, Any]:
         "version_source": config.version_source,
         "available_versions": dict(config.available_versions),
         "available_versions_updated_at": config.available_versions_updated_at,
+        "active_slot": config.active_slot,
+        "active_pointer_kind": config.active_pointer_kind,
         "paths": {
             "local_dir": config.layout.local_dir_relative,
             "codex_home_dir": config.layout.codex_home_relative,
@@ -70,8 +78,11 @@ def build_gitignore_block(layout: Layout) -> str:
         "# Local Codex package, home, wrapper, and sentinel artifacts.",
         "{}/".format(layout.local_dir_relative.rstrip("/")),
         "{}/".format(layout.codex_home_relative.rstrip("/")),
+        LEGACY_LOCAL_DIR,
+        LEGACY_HOME_DIR,
         ".codex",
         ".local/",
+        MAINTENANCE_LOCK_FILENAME,
         layout.launcher_relative,
         layout.readme_relative,
         GITIGNORE_END,
@@ -80,12 +91,72 @@ def build_gitignore_block(layout: Layout) -> str:
     return "\n".join(lines)
 
 
+def build_maintenance_lock_gitignore_block() -> str:
+    """Return the minimal ignore block retained after uninstall."""
+
+    return "\n".join(
+        [
+            GITIGNORE_BEGIN,
+            "# Stable serialization inode retained after uninstall.",
+            MAINTENANCE_LOCK_FILENAME,
+            GITIGNORE_END,
+            "",
+        ]
+    )
+
+
+def build_launcher_slot_record_validator_script() -> str:
+    """Return the JavaScript validator used for active A/B authority."""
+
+    return " ".join(
+        [
+            'const fs = require("fs");',
+            'const path = require("path");',
+            'const record = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));',
+            "const version = record.codex_version;",
+            'const channels = ["stable", "beta", "alpha"];',
+            r"const exactPattern = /^[0-9]+(?:\.[0-9]+){2}(?:[-+][0-9A-Za-z.-]+)?$/;",
+            'const isExact = (value) => typeof value === "string" && exactPattern.test(value.trim());',
+            'const inferChannel = (value) => { if (typeof value !== "string" || value.length === 0) return null; const normalized = value.trim().toLowerCase(); if (normalized === "latest" || normalized === "stable") return "stable"; if (normalized === "__preview__") return "alpha"; if (normalized === "alpha" || normalized === "beta") return normalized; if (normalized.includes("-alpha")) return "alpha"; if (normalized.includes("-beta")) return "beta"; return isExact(normalized) ? "stable" : null; };',
+            'const directLegacy = process.argv[4] === process.argv[10] && ((record.shared_home === true && (process.argv[6] === process.argv[11] || process.argv[15] === "1")) || (record.shared_home === false && (process.argv[6] === process.argv[11] || (process.argv[6] === process.argv[12] && process.argv[13] === "1"))));',
+            'const legacyHomeBound = record.shared_home === true || (record.shared_home === false && (process.argv[13] === "1" || process.argv[14] === "1"));',
+            'const homeNamespaceBound = process.argv[6] === process.argv[12] || (process.argv[14] === "1" && process.argv[6] === process.argv[11]);',
+            'const legacyAlias = process.argv[4] === process.argv[9] && homeNamespaceBound && record.local_dir === process.argv[10] && process.argv[5] === "1" && legacyHomeBound;',
+            "const legacyBinding = directLegacy || legacyAlias;",
+            "const localOk = record.local_dir === process.argv[4] || legacyAlias;",
+            "const paths = record.paths;",
+            'const pathsObject = paths !== null && typeof paths === "object" && !Array.isArray(paths);',
+            "const pathlessLegacy = paths === undefined && record.local_dir === process.argv[10] && legacyBinding;",
+            "const currentPaths = pathsObject && record.local_dir === process.argv[4] && paths.local_dir === process.argv[4] && paths.codex_home_dir === process.argv[6] && paths.launcher === process.argv[7] && paths.readme_local === process.argv[8];",
+            "const legacyPaths = pathsObject && record.local_dir === process.argv[10] && paths.local_dir === process.argv[10] && paths.codex_home_dir === process.argv[11] && paths.launcher === process.argv[7] && paths.readme_local === process.argv[8] && legacyBinding;",
+            "const pathsOk = pathlessLegacy || currentPaths || legacyPaths;",
+            "const selectorChannel = inferChannel(record.codex_selector);",
+            "const channelOk = record.codex_channel === null || channels.includes(record.codex_channel);",
+            'const selectorChannelOk = selectorChannel !== null && (record.codex_selector === "latest" || record.codex_channel === null || record.codex_channel === selectorChannel);',
+            "const catalog = record.available_versions;",
+            'const catalogOk = catalog !== null && typeof catalog === "object" && !Array.isArray(catalog) && Object.entries(catalog).every(([name, value]) => channels.includes(name) && (value === null || isExact(value)));',
+            'const updatedAtOk = record.available_versions_updated_at === undefined || record.available_versions_updated_at === null || typeof record.available_versions_updated_at === "string";',
+            'const recordOk = Number.isInteger(record.schema_version) && record.schema_version === 1 && record.script_name === "codex-wrangler" && record.state === "complete" && typeof record.generated_at === "string" && record.generated_at.length > 0 && record.slot === process.argv[2] && record.project_root === process.argv[3] && localOk && pathsOk && typeof record.codex_selector === "string" && channelOk && selectorChannelOk && isExact(version) && typeof record.version_source === "string" && record.version_source.length > 0 && typeof record.shared_home === "boolean" && typeof record.reasonable_permissions_enabled === "boolean" && catalogOk && updatedAtOk;',
+            "if (!recordOk) process.exit(1);",
+            "const prefix = fs.realpathSync(path.dirname(process.argv[1]));",
+            'const readEvidence = (relativePath) => { let candidate = prefix; for (let index = 0; index < relativePath.length; index += 1) { candidate = path.join(candidate, relativePath[index]); const status = fs.lstatSync(candidate); const finalComponent = index === relativePath.length - 1; if (status.isSymbolicLink() || (finalComponent ? !status.isFile() : !status.isDirectory())) process.exit(1); } const resolved = fs.realpathSync(candidate); if (!resolved.startsWith(prefix + path.sep)) process.exit(1); let descriptor; try { const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0); descriptor = fs.openSync(candidate, flags); if (!fs.fstatSync(descriptor).isFile()) process.exit(1); return JSON.parse(fs.readFileSync(descriptor, "utf8")); } finally { if (typeof descriptor === "number") fs.closeSync(descriptor); } };',
+            'const packageJson = readEvidence(["package.json"]);',
+            'const lockJson = readEvidence(["package-lock.json"]);',
+            'const installedJson = readEvidence(["node_modules", "@openai", "codex", "package.json"]);',
+            'const evidenceOk = packageJson && packageJson.devDependencies && packageJson.devDependencies["@openai/codex"] === version && lockJson && lockJson.packages && lockJson.packages["node_modules/@openai/codex"] && lockJson.packages["node_modules/@openai/codex"].version === version && installedJson && installedJson.version === version;',
+            "if (!evidenceOk) process.exit(1);",
+            r'process.stdout.write([version, record.shared_home ? "1" : "0", record.reasonable_permissions_enabled ? "1" : "0"].join("\t"));',
+        ]
+    )
+
+
 def build_launcher_preflight_lines() -> list[str]:
     """Return the shell preflight block embedded in the launcher."""
 
     repair_guidance = (
         'Run a known-good {} command with --repair \\"$repo_root\\".'
     ).format(SCRIPT_NAME)
+    slot_record_validator = shlex.quote(build_launcher_slot_record_validator_script())
     return [
         'preflight_mode="${CODEX_LOCAL_PREFLIGHT:-warn}"',
         'preflight_prefix="[codex-local] preflight"',
@@ -134,8 +205,79 @@ def build_launcher_preflight_lines() -> list[str]:
         '  preflight_fail "Local Codex executable is missing or not executable: $local_codex_bin. Re-run codex-wrangler install or upgrade for this project."',
         "fi",
         "",
+        'canonical_local_root="$(node -e \'const fs = require("fs"); process.stdout.write(fs.realpathSync(process.argv[1]));\' "$local_root" 2>/dev/null || true)"',
+        'canonical_local_prefix="$(node -e \'const fs = require("fs"); process.stdout.write(fs.realpathSync(process.argv[1]));\' "$local_prefix" 2>/dev/null || true)"',
+        'if [[ -z "$canonical_local_root" || -z "$canonical_local_prefix" ]]; then',
+        '  preflight_fail "Managed local root or selected prefix could not be resolved."',
+        "fi",
+        'if [[ "$canonical_local_prefix" != "$canonical_local_root" ]]; then',
+        '  case "$canonical_local_prefix" in',
+        '    "$canonical_local_root"/*) ;;',
+        "    *)",
+        '      preflight_fail "Selected Codex prefix resolves outside the managed local root."',
+        "      ;;",
+        "  esac",
+        "fi",
+        "",
+        'slot_record_version=""',
+        'if [[ -n "$selected_slot" ]]; then',
+        '  slot_record="$local_prefix/.codex-wrangler-slot.json"',
+        '  if [[ ! -f "$slot_record" || -L "$slot_record" ]]; then',
+        '    preflight_fail "Active slot completion record is missing or linked: $slot_record"',
+        "  fi",
+        '  slot_record_payload="$(node -e {} "$slot_record" "$selected_slot" "$repo_root" "$local_root_relative" "$legacy_runtime_compat" "$codex_home_relative" "$launcher_relative" "$readme_relative" "$canonical_default_local_relative" "$legacy_default_local_relative" "$legacy_default_home_relative" "$canonical_default_home_relative" "$legacy_home_compat" "$legacy_home_pending" "$migration_bridge_enabled" 2>/dev/null || true)"'.format(
+            slot_record_validator
+        ),
+        "  IFS=$'\\t' read -r slot_record_version effective_shared_home reasonable_permissions_enabled <<< \"$slot_record_payload\"",
+        '  if [[ -z "$slot_record_version" ]]; then',
+        '    preflight_fail "Active slot completion record is invalid: $slot_record"',
+        "  fi",
+        "fi",
+        "",
+        'if [[ "$effective_shared_home" == "1" ]]; then',
+        "  # Preserve the caller's HOME and XDG selection in shared mode.",
+        ":",
+        "else",
+        '  if [[ "$canonical_home_untrusted" == "1" ]]; then',
+        '    preflight_fail "Canonical managed HOME is an untrusted symbolic link: $managed_home"',
+        "  fi",
+        '  managed_home_cursor="$repo_root"',
+        "  IFS='/' read -r -a managed_home_components <<< \"$codex_home_relative\"",
+        '  for managed_home_component in "${managed_home_components[@]}"; do',
+        '    [[ -z "$managed_home_component" || "$managed_home_component" == "." ]] && continue',
+        '    managed_home_cursor="$managed_home_cursor/$managed_home_component"',
+        '    if [[ -L "$managed_home_cursor" ]]; then',
+        '      preflight_fail "Managed HOME path may not contain symbolic links: $managed_home_cursor"',
+        "    fi",
+        '    if [[ -e "$managed_home_cursor" && ! -d "$managed_home_cursor" ]]; then',
+        '      preflight_fail "Managed HOME path component is not a directory: $managed_home_cursor"',
+        "    fi",
+        "  done",
+        '  managed_home="$managed_home_cursor"',
+        '  export HOME="$managed_home"',
+        '  export XDG_CONFIG_HOME="$HOME/.config"',
+        '  export XDG_CACHE_HOME="$HOME/.cache"',
+        '  export XDG_STATE_HOME="$HOME/.local/state"',
+        '  export XDG_DATA_HOME="$HOME/.local/share"',
+        "fi",
+        'export CODEX_HOME="$HOME/.codex"',
+        "",
+        'canonical_local_codex_bin="$(node -e \'const fs = require("fs"); process.stdout.write(fs.realpathSync(process.argv[1]));\' "$local_codex_bin" 2>/dev/null || true)"',
+        'case "$canonical_local_codex_bin" in',
+        '  "$canonical_local_prefix"/*) ;;',
+        "  *)",
+        '    preflight_fail "Local Codex executable resolves outside the selected prefix: $local_codex_bin"',
+        "    ;;",
+        "esac",
+        "",
         'local_codex_health_output=""',
-        'if ! local_codex_health_output="$("$local_codex_bin" --version 2>&1)"; then',
+        'local_codex_health_status="0"',
+        'local_codex_health_output="$(node -e \'const child = require("child_process"); const result = child.spawnSync(process.argv[1], ["--version"], { encoding: "utf8", timeout: 30000 }); process.stdout.write((result.stdout || "") + (result.stderr || "")); if (result.error && result.error.code === "ETIMEDOUT") process.exit(124); process.exit(Number.isInteger(result.status) ? result.status : 1);\' "$local_codex_bin")" || local_codex_health_status="$?"',
+        'if [[ "$local_codex_health_status" == "124" ]]; then',
+        '  preflight_fail "Local Codex health check timed out after 30s. {}"'.format(
+            repair_guidance
+        ),
+        'elif [[ "$local_codex_health_status" != "0" ]]; then',
         '  preflight_fail "Local Codex health check failed before launch. {}"'.format(
             repair_guidance
         ),
@@ -143,7 +285,11 @@ def build_launcher_preflight_lines() -> list[str]:
         'local_codex_health_matches="0"',
         'while IFS= read -r local_codex_health_line || [[ -n "$local_codex_health_line" ]]; do',
         "  local_codex_health_line=\"${local_codex_health_line%$'\\r'}\"",
-        '  if [[ "$local_codex_health_line" =~ ^codex-cli[[:space:]]+[^[:space:]]+$ ]]; then',
+        '  if [[ -n "$slot_record_version" ]]; then',
+        '    if [[ "$local_codex_health_line" == "codex-cli $slot_record_version" ]]; then',
+        '      local_codex_health_matches="$((local_codex_health_matches + 1))"',
+        "    fi",
+        '  elif [[ "$local_codex_health_line" =~ ^codex-cli[[:space:]]+[^[:space:]]+$ ]]; then',
         '    local_codex_health_matches="$((local_codex_health_matches + 1))"',
         "  fi",
         'done <<< "$local_codex_health_output"',
@@ -187,19 +333,108 @@ def build_launcher_preflight_lines() -> list[str]:
     ]
 
 
+def build_launcher_slot_selection_lines() -> list[str]:
+    """Return strict active-pointer selection with a legacy fallback."""
+
+    return [
+        'local_root_cursor="$repo_root"',
+        "IFS='/' read -r -a local_root_components <<< \"$local_root_relative\"",
+        'for local_root_component in "${local_root_components[@]}"; do',
+        '  [[ -z "$local_root_component" || "$local_root_component" == "." ]] && continue',
+        '  local_root_cursor="$local_root_cursor/$local_root_component"',
+        '  if [[ -L "$local_root_cursor" ]]; then',
+        '    printf "%s\\n" "[codex-local] preflight: Managed local root path may not contain symbolic links: $local_root_cursor" >&2',
+        "    exit 1",
+        "  fi",
+        "done",
+        'if [[ -L "$local_root" ]]; then',
+        '  printf "%s\\n" "[codex-local] preflight: Managed local root may not be a symbolic link: $local_root" >&2',
+        "  exit 1",
+        "fi",
+        'if [[ -e "$local_root/slots" && ( -L "$local_root/slots" || ! -d "$local_root/slots" ) ]]; then',
+        '  printf "%s\\n" "[codex-local] preflight: Managed slots path is not a real directory: $local_root/slots" >&2',
+        "  exit 1",
+        "fi",
+        'active_link="$local_root/active"',
+        'active_file="$local_root/active-slot"',
+        'selected_slot=""',
+        "active_link_present=0",
+        "active_file_present=0",
+        'if [[ -e "$active_link" || -L "$active_link" ]]; then active_link_present=1; fi',
+        'if [[ -e "$active_file" || -L "$active_file" ]]; then active_file_present=1; fi',
+        'if [[ "$active_link_present" == "1" && "$active_file_present" == "1" ]]; then',
+        '  printf "%s\\n" "[codex-local] preflight: Both managed active pointer forms exist; refusing ambiguous state." >&2',
+        "  exit 1",
+        "fi",
+        'if [[ "$active_link_present" == "1" ]]; then',
+        '  if [[ ! -L "$active_link" ]]; then',
+        '    printf "%s\\n" "[codex-local] preflight: Managed active pointer is not a symbolic link: $active_link" >&2',
+        "    exit 1",
+        "  fi",
+        '  active_target="$(readlink "$active_link")"',
+        '  case "$active_target" in',
+        "    slots/a|slots/b) ;;",
+        "    *)",
+        '      printf "%s\\n" "[codex-local] preflight: Invalid managed active pointer target: $active_target" >&2',
+        "      exit 1",
+        "      ;;",
+        "  esac",
+        '  selected_slot="${active_target#slots/}"',
+        '  local_prefix="$local_root/$active_target"',
+        'elif [[ "$active_file_present" == "1" ]]; then',
+        '  if [[ ! -f "$active_file" || -L "$active_file" || "$(wc -c < "$active_file")" -ne 2 ]]; then',
+        '    printf "%s\\n" "[codex-local] preflight: Invalid managed active-slot file: $active_file" >&2',
+        "    exit 1",
+        "  fi",
+        '  IFS= read -r active_slot < "$active_file"',
+        '  case "$active_slot" in',
+        "    a|b) ;;",
+        "    *)",
+        '      printf "%s\\n" "[codex-local] preflight: Invalid managed active slot: $active_slot" >&2',
+        "      exit 1",
+        "      ;;",
+        "  esac",
+        '  selected_slot="$active_slot"',
+        '  local_prefix="$local_root/slots/$active_slot"',
+        "else",
+        "  # Legacy installs remain usable until the first validated slot promotion.",
+        '  local_prefix="$local_root"',
+        "fi",
+        'if [[ -L "$local_prefix" ]]; then',
+        '  printf "%s\\n" "[codex-local] preflight: Managed slot paths may not be symbolic links." >&2',
+        "  exit 1",
+        "fi",
+        'if [[ -n "$selected_slot" && ! -d "$local_prefix" ]]; then',
+        '  printf "%s\\n" "[codex-local] preflight: Active pointer selects a missing slot: $local_prefix" >&2',
+        "  exit 1",
+        "fi",
+    ]
+
+
 def build_launcher_update_notice_lines(layout: Layout) -> list[str]:
     """Return the shell block that prints a known-update notice before launch."""
 
-    metadata_path = "{}/.codex-wrangler.json".format(layout.local_dir_relative)
     return [
         "emit_update_notice() {",
-        "  node - \"$repo_root/{}\" <<'NODE'".format(metadata_path),
+        "  node - \"$local_root/.codex-wrangler.json\" <<'NODE'",
         'const fs = require("fs");',
         "const metadataPath = process.argv[2];",
         "let metadata;",
+        "let metadataDescriptor;",
         "try {",
-        '  metadata = JSON.parse(fs.readFileSync(metadataPath, "utf8"));',
+        "  const pathStatus = fs.lstatSync(metadataPath);",
+        "  if (!pathStatus.isFile() || pathStatus.isSymbolicLink()) throw new Error();",
+        "  const openFlags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);",
+        "  metadataDescriptor = fs.openSync(metadataPath, openFlags);",
+        "  if (!fs.fstatSync(metadataDescriptor).isFile()) throw new Error();",
+        '  const metadataText = fs.readFileSync(metadataDescriptor, "utf8");',
+        "  fs.closeSync(metadataDescriptor);",
+        "  metadataDescriptor = undefined;",
+        "  metadata = JSON.parse(metadataText);",
         "} catch (error) {",
+        '  if (typeof metadataDescriptor === "number") {',
+        "    try { fs.closeSync(metadataDescriptor); } catch (closeError) {}",
+        "  }",
         "  process.exit(0);",
         "}",
         'const installedVersion = typeof metadata.codex_version === "string" ? metadata.codex_version : null;',
@@ -291,9 +526,7 @@ def build_launcher_update_notice_lines(layout: Layout) -> list[str]:
 def build_launcher_reasonable_permissions_lines(config: Config) -> list[str]:
     """Return the shell block that injects managed approval defaults."""
 
-    state_value = "1" if config.reasonable_permissions_enabled else "0"
     return [
-        'reasonable_permissions_enabled="{}"'.format(state_value),
         "default_codex_args=()",
         "",
         'if [[ "$reasonable_permissions_enabled" == "1" ]]; then',
@@ -321,6 +554,11 @@ def build_launcher_reasonable_permissions_lines(config: Config) -> list[str]:
 def build_launcher_content(config: Config) -> str:
     """Build the generated shell launcher."""
 
+    launcher_parent = Path(config.layout.launcher_relative).parent
+    launcher_parent_parts = [
+        part for part in launcher_parent.parts if part not in ("", ".")
+    ]
+    root_hops = "/".join(".." for _ in launcher_parent_parts) or "."
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -336,30 +574,107 @@ def build_launcher_content(config: Config) -> str:
         "# home directory so auth, sessions, logs, and other Codex state remain",
         "# isolated per project.",
         "",
-        'repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"',
-        'local_prefix="$repo_root/{}"'.format(config.layout.local_dir_relative),
-        'export NPM_CONFIG_CACHE="$local_prefix/.npm-cache"',
-        'export CODEX_LOCAL_MANAGED_BY="{}"'.format(SCRIPT_NAME),
+        'repo_root="$(cd "$(dirname "${{BASH_SOURCE[0]}}")/{}" && pwd -P)"'.format(
+            root_hops
+        ),
+        "local_root_relative={}".format(shlex.quote(config.layout.local_dir_relative)),
+        "codex_home_relative={}".format(shlex.quote(config.layout.codex_home_relative)),
+        "launcher_relative={}".format(shlex.quote(config.layout.launcher_relative)),
+        "readme_relative={}".format(shlex.quote(config.layout.readme_relative)),
+        "canonical_default_local_relative={}".format(shlex.quote(DEFAULT_LOCAL_DIR)),
+        "canonical_default_home_relative={}".format(shlex.quote(DEFAULT_HOME_DIR)),
+        "legacy_default_local_relative={}".format(shlex.quote(LEGACY_LOCAL_DIR)),
+        "legacy_default_home_relative={}".format(shlex.quote(LEGACY_HOME_DIR)),
+        'local_root="$repo_root/$local_root_relative"',
+        "legacy_runtime_compat=0",
+        "legacy_home_compat=0",
+        "legacy_home_pending=0",
+        "migration_bridge_enabled={}".format(
+            "1" if config.layout_migration is not None else "0"
+        ),
+        'effective_shared_home="{}"'.format("1" if config.shared_home else "0"),
+        'reasonable_permissions_enabled="{}"'.format(
+            "1" if config.reasonable_permissions_enabled else "0"
+        ),
+        "canonical_home_untrusted=0",
     ]
-
-    if config.shared_home:
+    if config.layout.local_dir_relative == DEFAULT_LOCAL_DIR:
         lines.extend(
             [
-                "# Shared-home mode leaves HOME unchanged so the operator's",
-                "# normal ~/.codex state is reused across projects.",
+                'legacy_local_root="$repo_root/{}"'.format(LEGACY_LOCAL_DIR),
+                "canonical_local_root_staged=0",
+                'if [[ -L "$local_root" ]]; then',
+                '  if [[ "$migration_bridge_enabled" == "1" && "$(readlink "$local_root")" == "{}" && -d "$legacy_local_root" && ! -L "$legacy_local_root" ]]; then'.format(
+                    DEFAULT_LOCAL_DIR
+                ),
+                "    canonical_local_root_staged=1",
+                "  else",
+                '    printf "%s\n" "[codex-local] preflight: Canonical managed runtime is an untrusted symbolic link: $local_root" >&2',
+                "    exit 1",
+                "  fi",
+                "fi",
+                'if [[ "$migration_bridge_enabled" == "1" ]] && { [[ ! -e "$local_root" && ! -L "$local_root" ]] || [[ "$canonical_local_root_staged" == "1" ]]; } && [[ -d "$legacy_local_root" && ! -L "$legacy_local_root" ]]; then',
+                "  local_root_relative={}".format(shlex.quote(LEGACY_LOCAL_DIR)),
+                '  local_root="$legacy_local_root"',
+                "fi",
+                'if [[ "$local_root_relative" == "{}" && -d "$local_root" && ! -L "$local_root" && -L "$legacy_local_root" && "$(readlink "$legacy_local_root")" == "{}" ]]; then'.format(
+                    DEFAULT_LOCAL_DIR,
+                    DEFAULT_LOCAL_DIR,
+                ),
+                "  legacy_runtime_compat=1",
+                "fi",
+            ]
+        )
+    lines.extend(
+        [
+            'export NPM_CONFIG_CACHE="$local_root/.npm-cache"',
+            'export CODEX_LOCAL_MANAGED_BY="{}"'.format(SCRIPT_NAME),
+        ]
+    )
+
+    if config.layout.codex_home_relative == DEFAULT_HOME_DIR:
+        lines.extend(
+            [
+                'managed_home="$repo_root/{}"'.format(DEFAULT_HOME_DIR),
+                'legacy_managed_home="$repo_root/{}"'.format(LEGACY_HOME_DIR),
+                "canonical_home_staged=0",
+                'if [[ -L "$managed_home" ]]; then',
+                '  if [[ "$migration_bridge_enabled" == "1" && "{}" == "0" && "$(readlink "$managed_home")" == "{}" && -d "$legacy_managed_home" && ! -L "$legacy_managed_home" ]]; then'.format(
+                    "1" if config.shared_home else "0",
+                    DEFAULT_HOME_DIR,
+                ),
+                "    canonical_home_staged=1",
+                "  else",
+                "    canonical_home_untrusted=1",
+                "  fi",
+                "fi",
+            ]
+        )
+        if not config.shared_home:
+            lines.extend(
+                [
+                    'if [[ "$migration_bridge_enabled" == "1" ]] && { [[ ! -e "$managed_home" && ! -L "$managed_home" ]] || [[ "$canonical_home_staged" == "1" ]]; } && [[ -d "$legacy_managed_home" && ! -L "$legacy_managed_home" ]]; then',
+                    "  codex_home_relative={}".format(shlex.quote(LEGACY_HOME_DIR)),
+                    '  managed_home="$legacy_managed_home"',
+                    "  legacy_home_pending=1",
+                    "fi",
+                ]
+            )
+        lines.extend(
+            [
+                'if [[ "$codex_home_relative" == "{}" && -d "$managed_home" && ! -L "$managed_home" && -L "$legacy_managed_home" && "$(readlink "$legacy_managed_home")" == "{}" ]]; then'.format(
+                    DEFAULT_HOME_DIR,
+                    DEFAULT_HOME_DIR,
+                ),
+                "  legacy_home_compat=1",
+                "fi",
             ]
         )
     else:
-        lines.extend(
-            [
-                'export HOME="$repo_root/{}"'.format(config.layout.codex_home_relative),
-                'export XDG_CONFIG_HOME="$HOME/.config"',
-                'export XDG_CACHE_HOME="$HOME/.cache"',
-                'export XDG_STATE_HOME="$HOME/.local/state"',
-                'export XDG_DATA_HOME="$HOME/.local/share"',
-            ]
-        )
+        lines.append('managed_home="$repo_root/$codex_home_relative"')
 
+    lines.extend([""])
+    lines.extend(build_launcher_slot_selection_lines())
     lines.extend([""])
     lines.extend(build_launcher_preflight_lines())
     lines.extend([""])
@@ -379,6 +694,9 @@ def build_launcher_content(config: Config) -> str:
 def build_local_readme_content(config: Config) -> str:
     """Build the generated project-local operator README."""
 
+    audit_prefix = config.layout.local_dir_relative
+    if config.active_slot:
+        audit_prefix = "{}/slots/{}".format(audit_prefix, config.active_slot)
     lines = [
         README_MARKER,
         "# Local Codex Start Guide",
@@ -467,7 +785,7 @@ def build_local_readme_content(config: Config) -> str:
         "```bash",
         "NPM_CONFIG_CACHE=./{}/.npm-cache npm audit --prefix ./{}".format(
             config.layout.local_dir_relative,
-            config.layout.local_dir_relative,
+            audit_prefix,
         ),
         "```",
         "",
@@ -563,6 +881,9 @@ def local_package_json_looks_managed(content: str) -> bool:
 def build_install_summary(config: Config) -> str:
     """Return the operator summary shown after install and upgrade operations."""
 
+    audit_prefix = config.layout.local_dir
+    if config.active_slot:
+        audit_prefix = config.layout.local_dir / "slots" / config.active_slot
     lines = [
         "Operation complete.",
         "",
@@ -589,15 +910,15 @@ def build_install_summary(config: Config) -> str:
                 "skipped by request"
                 if config.skip_install
                 else (
-                    "repair cleanup plus npm install required"
+                    "inactive-slot repair install required"
                     if config.repair_install and config.dry_run
                     else (
-                        "repair cleanup plus npm install completed"
+                        "inactive-slot repair install completed"
                         if config.repair_install
                         else (
-                            "npm install required"
+                            "inactive-slot npm install required"
                             if config.dry_run
-                            else "npm install completed"
+                            else "inactive-slot npm install completed"
                         )
                     )
                 )
@@ -612,7 +933,7 @@ def build_install_summary(config: Config) -> str:
         "Audit command:",
         "  NPM_CONFIG_CACHE={}/.npm-cache npm audit --prefix {}".format(
             config.layout.local_dir,
-            config.layout.local_dir,
+            audit_prefix,
         ),
     ]
     return "\n".join(lines)

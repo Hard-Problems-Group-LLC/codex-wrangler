@@ -14,6 +14,17 @@ Active Requests
 ---------------
 
 *
+  2026-09-10T04:51:00-07:00
+  Requestor: Codex
+  Action: Restart from a shell with the intended working SSH agent, then issue
+  the literal phrase `collision resume` so live remote fetch comparison and the
+  requested ACP workflow can continue in this workspace.
+  Status: active. `SSH_AUTH_SOCK` is unset. The current checkout and its
+  last-fetched `origin/trunk` both resolve to `bdb4fd76`, while the reviewed
+  clean TheKnowledge checkout and its last-fetched `origin/trunk` resolve to
+  `751a52a`; neither remote was freshly queried in this shell.
+
+*
   2026-07-10T04:06:04-07:00
   Requestor: Codex
   Action: Review and remove the legacy unconditional pyenv initialization block

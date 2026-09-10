@@ -77,11 +77,19 @@ After the script finishes, open a new shell in this repository so the managed
 `direnv` hook can activate `.venv`.
 
 When the current shell is a repo-local `codex-local` session with `HOME`
-redirected into `.codex-home`, development bootstrap no longer guesses which
+redirected into `.local/codex-home`, development bootstrap no longer
+guesses which
 user scope to mutate. In that situation, pass `--user-home /real/home` to
 target an operator home explicitly, or `--allow-isolated-home` when you
 deliberately want the bootstrap's user-scoped side effects to land in the
 isolated AI home.
+
+The selected home is also authoritative for installer subprocess discovery:
+stage two and the low-level user installer pin `HOME`, the persistent XDG home
+variables, and pip's cache beneath it, and remove inherited XDG variables such
+as `XDG_RUNTIME_DIR` plus `CODEX_HOME` and `CLAUDE_CONFIG_DIR`. Git submodule
+and pyenv children remain inside the same boundary. This applies to standard,
+development, and venv-only user contexts.
 
 Run `./install.sh --help` when you need the current pass-through option list
 from `scripts/install-stage-2.py`. Direct stage-2 execution is guarded and is
@@ -126,7 +134,8 @@ user venv. That keeps the packages isolated while reusing a sensible
 user-scoped runtime family instead of creating an extra interpreter tree.
 
 As with `./install.sh`, this helper now treats an isolated repo-local
-`.codex-home` as a distinct user scope. Use `--user-home /path/to/home` when
+`.local/codex-home` as a distinct user scope. Use
+`--user-home /path/to/home` when
 you intend to target some other user, and `--allow-isolated-home` only when
 an AI-local install into that isolated home is deliberate.
 
@@ -163,7 +172,12 @@ git submodule update --init --recursive
 
 That brings the standards/tooling companion checkout into place before you use
 repo-specific helper material from it. The developer bootstrap script does this
-for you.
+for you with initialize-only traversal. It fills missing direct and nested
+submodules but does not reconcile an existing checkout to the recorded gitlink.
+Each existing submodule path component is revalidated as a real contained
+directory before Git inspection, initialization, and recursion, so a replaced
+link cannot redirect bootstrap into another repository. Updating or resetting
+an initialized submodule remains an explicit operator action.
 
 ## Running The Utility From Source
 

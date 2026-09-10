@@ -4,6 +4,7 @@ import subprocess
 import sys
 
 from codex_wrangler.cli import main
+from codex_wrangler.slots import PointerCommittedInterrupt
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -37,16 +38,15 @@ def test_repo_wrapper_runs_from_checkout():
     assert "--version REQUESTED_VERSION" in completed.stdout
 
 
-def test_cli_inspect_ensures_managed_gitignore_block(monkeypatch, tmp_path):
+def test_cli_inspect_does_not_mutate_gitignore(monkeypatch, tmp_path):
+    """Inspection remains read-only even when managed ignores are absent."""
+
     monkeypatch.setattr("codex_wrangler.cli.inspect_operation", lambda config: 0)
 
     exit_code = main(["--inspect", str(tmp_path)])
 
     assert exit_code == 0
-    text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
-    assert "# BEGIN managed by codex-wrangler" in text
-    assert ".codex" in text
-    assert "bin/codex-local" in text
+    assert not (tmp_path / ".gitignore").exists()
 
 
 def test_cli_reports_configuration_errors_without_traceback(capsys):
@@ -64,6 +64,24 @@ def test_cli_suggests_missing_dashes_for_bare_update(capsys):
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "Did you perhaps mean '--update'?" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_reports_committed_pointer_interrupt_detail(monkeypatch, capsys, tmp_path):
+    """Exit 130 retains the diagnostic that the new runtime is authoritative."""
+
+    monkeypatch.setattr(
+        "codex_wrangler.cli.install_like_operation",
+        lambda _config: (_ for _ in ()).throw(
+            PointerCommittedInterrupt("verified slot b remains active")
+        ),
+    )
+
+    exit_code = main([str(tmp_path)])
+
+    captured = capsys.readouterr()
+    assert exit_code == 130
+    assert "verified slot b remains active" in captured.err
     assert "Traceback" not in captured.err
 
 

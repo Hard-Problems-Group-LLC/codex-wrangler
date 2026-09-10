@@ -12,8 +12,10 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from codex_wrangler.constants import (
+    DEFAULT_HOME_DIR,
     DEFAULT_INSTALL_CODEX_CHANNEL,
     DEFAULT_INSTALL_CODEX_SELECTOR,
+    DEFAULT_LOCAL_DIR,
 )
 from codex_wrangler.layout import build_layout
 from codex_wrangler.models import Config
@@ -24,8 +26,8 @@ def config_factory():
     def factory(project_root: Path, **overrides) -> Config:
         layout = build_layout(
             project_root,
-            overrides.pop("local_dir_raw", ".codex-local"),
-            overrides.pop("codex_home_raw", ".codex-home"),
+            overrides.pop("local_dir_raw", DEFAULT_LOCAL_DIR),
+            overrides.pop("codex_home_raw", DEFAULT_HOME_DIR),
             overrides.pop("launcher_raw", "bin/codex-local"),
             overrides.pop("readme_raw", "README-LOCAL-Start-Codex.md"),
         )

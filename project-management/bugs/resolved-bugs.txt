@@ -8,6 +8,47 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-09-10T05:04:01-07:00. Recursive initialize-only submodule
+  traversal could follow a replaced final or ancestor path link and execute Git
+  in an external repository. Root cause: lexical path syntax and `is_dir()`
+  checks did not establish a link-free contained filesystem identity around
+  each Git operation. Resolution: lstat every existing component, prove the
+  resolved child remains inside its repository, revalidate before status,
+  initialization, and recursion, and cover both replacement classes with real
+  Git fixtures. Details:
+  `closed/stage-two-submodule-path-symlink-escape.md`
+
+*
+  Resolved: 2026-09-10T05:04:01-07:00. Case-only custom managed paths could
+  alias runtime, protected context, or generated outputs after transplant to a
+  case-insensitive filesystem. Root cause: overlap checks used only the current
+  host's case-sensitive `Path.relative_to` semantics. Resolution: reject
+  component-wise casefold equality and containment before paths exist, with
+  runtime/HOME, generated-output, and reserved-context regressions. Details:
+  `closed/casefold-equivalent-managed-path-alias.md`
+
+*
+  Resolved: 2026-09-10T04:42:35-07:00. Published Codex channel information
+  could remain stale until a new wrangler release changed hardcoded constants.
+  Root cause: policy channels and current npm registry targets were conflated
+  in source defaults. Resolution: resolve install/update catalogs dynamically
+  from npm `dist-tags` in disposable lookup state, persist the validated
+  timestamped catalog in managed evidence, consume it explicitly for upgrades,
+  and cover live, cached, malformed, exact-version, and channel behavior.
+  Details: `closed/stale-known-codex-version-tags.txt`
+
+*
+  Resolved: 2026-09-10T00:12:09-07:00. Interrupted install, upgrade, repair, or
+  channel switching could destroy the previously working local Codex runtime.
+  Root cause: npm modified the published prefix in place without an independent
+  candidate, atomic commit point, retained rollback slot, or stable maintenance
+  lock. Resolution: validate transaction-unique candidates, reversibly install
+  into inactive A/B slots, atomically promote one strict pointer, retain the
+  former active slot, and preserve context through exact-evidence standalone
+  repair. Details:
+  `closed/in-place-managed-install-replacement-could-destroy-working-runtime.md`
+
+*
   Resolved: 2026-09-02T02:19:09-07:00. Persisted truncation of managed native
   Codex executables could leave package metadata internally consistent while
   the launcher terminated with a segmentation fault. Root cause: post-install

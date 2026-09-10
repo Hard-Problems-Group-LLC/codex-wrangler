@@ -28,6 +28,7 @@ FALLBACK_BLACK_PATHS = (
 )
 SKIP_DIR_NAMES = {
     ".git",
+    ".local",
     ".venv",
     ".codex-home",
     ".codex-local",

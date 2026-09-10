@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from codex_wrangler.install_scope import (
     default_pyenv_root as default_install_pyenv_root,
@@ -16,6 +16,7 @@ from codex_wrangler.install_scope import (
     default_user_bin_dir,
     describe_user_home_source,
     resolve_user_home,
+    user_scope_subprocess_environment,
 )
 
 DEFAULT_LAUNCHER_NAME = "codex-wrangler"
@@ -233,7 +234,11 @@ def build_bootstrap_command(python_executable: Path) -> list[str]:
     ]
 
 
-def ensure_virtualenv(python_executable: str, venv_path: Path) -> Path:
+def ensure_virtualenv(
+    python_executable: str,
+    venv_path: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> Path:
     """Create the dedicated virtual environment when it does not exist."""
 
     venv_python = venv_python_path(venv_path)
@@ -242,15 +247,23 @@ def ensure_virtualenv(python_executable: str, venv_path: Path) -> Path:
 
     subprocess.run(
         [python_executable, "-m", "venv", str(venv_path)],
+        env=dict(env) if env is not None else None,
         check=True,
     )
     return venv_python
 
 
-def install_build_bootstrap(venv_python: Path) -> None:
+def install_build_bootstrap(
+    venv_python: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> None:
     """Install the build tooling that recent Ubuntu venvs omit by default."""
 
-    subprocess.run(build_bootstrap_command(venv_python), check=True)
+    subprocess.run(
+        build_bootstrap_command(venv_python),
+        env=dict(env) if env is not None else None,
+        check=True,
+    )
 
 
 def ensure_launcher(bin_dir: Path, launcher_name: str, target: Path) -> Path:
@@ -287,6 +300,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.user_home,
             allow_isolated_home=args.allow_isolated_home,
         )
+        subprocess_env = user_scope_subprocess_environment(target_user_home)
         venv_path = (
             args.venv.expanduser().resolve()
             if args.venv is not None
@@ -302,8 +316,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.python,
             target_user_home,
         )
-        venv_python = ensure_virtualenv(python_executable, venv_path)
-        install_build_bootstrap(venv_python)
+        venv_python = ensure_virtualenv(
+            python_executable,
+            venv_path,
+            env=subprocess_env,
+        )
+        install_build_bootstrap(venv_python, env=subprocess_env)
         subprocess.run(
             build_install_command(
                 venv_python,
@@ -311,6 +329,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 editable=args.editable,
                 dev=args.dev,
             ),
+            env=subprocess_env,
             check=True,
         )
         launcher_path = ensure_launcher(

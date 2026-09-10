@@ -4,18 +4,19 @@ Ordered list of confirmed bugs awaiting work. Put highest-priority bug at the
 top. Use asterisk-plus-blank-line format, include concise context, owners, and
 ISO 8601 timestamps. Store any expanded per-bug notes under `open/`.
 
+* Opened `2026-09-10T02:58:22-07:00`. Canonical migration validates
+  managed paths before a pathname-based `renameat2` exchange, so an
+  out-of-band manual namespace swap could race that validation. Disposable
+  maintenance cleanup and revalidated submodule traversal have the analogous
+  same-UID check-to-use limitation; normal wrangler concurrency remains
+  serialized. Owner: unassigned. Details:
+  `open/canonical-migration-pathname-race.md`
+
 * Opened `2026-04-30T18:46:02-07:00`. Parent-repository entropy scans can
   traverse ignored local Codex artifacts under `.codex-home/` and
   `.codex-local/`, and submodule-hosted entropy harness calls can miss
   parent-repo relative paths. Details:
   `open/entropy-scan-includes-ignored-local-codex-artifacts.txt`
-
-* Opened `2026-04-08T16:13:00-07:00`. `codex-wrangler` reports stale
-  `latest known` stable and alpha versions because the values are hardcoded in
-  source. On `2026-04-08`, `--inspect` still reported stable `0.116.0` and
-  alpha `0.117.0-alpha.19` even though npm `dist-tags` had stable `0.118.0`
-  and alpha `0.119.0-alpha.23`. Details:
-  `open/stale-known-codex-version-tags.txt`
 
 * Opened `2026-04-15T20:26:00-07:00`. The tracker currently has no
   actionable new bug to add for this request, which leaves operators without a

@@ -6,14 +6,6 @@ Include concise context, blockers, owner/requestor, and ISO 8601 timestamps.
 
 *
   2026-07-10T04:06:04-07:00
-  Requestor: operator
-  Task: Review and update the stale TheKnowledge submodule after comparing the
-  incoming managed starter against the pinned-pyenv, venv-symlink, and existing
-  overlay-preservation ECRs. Preserve project-local bootstrap behavior during
-  the refresh.
-
-*
-  2026-07-10T04:06:04-07:00
   Requestor: Codex
   Task: Add repeatable clean-host and transplanted-host acceptance fixtures for
   standard bootstrap, development bootstrap, removed dependency trees,

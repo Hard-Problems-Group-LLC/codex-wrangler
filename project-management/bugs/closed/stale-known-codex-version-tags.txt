@@ -1,7 +1,9 @@
 Stale known Codex version detection
 
-Status: Open
+Status: Closed
 Date Opened: 2026-04-08T16:13:00-07:00
+Date Closed: 2026-09-10T04:42:35-07:00
+Owner: Codex
 Scope: version detection, install defaults, inspect reporting, and
 upgrade guidance
 
@@ -70,3 +72,17 @@ Recommendation
   known`.
 - Add tests that mock npm registry responses and validate both live
   resolution and offline-fallback behavior.
+
+
+Resolution
+
+- Fresh install and explicit catalog refresh resolve supported channels from
+  live npm `dist-tags` in a disposable out-of-project lookup environment.
+- The validated catalog and update timestamp are retained in managed root and
+  active-slot evidence, and explicit upgrades consume that locally known
+  catalog without silently changing channels.
+- Inspection and launcher guidance label the catalog and its update time rather
+  than presenting embedded constants as current registry fact.
+- Dynamic lookup, persisted-catalog, malformed-catalog, exact-version, channel,
+  update-only, inspection, and rendering regressions cover the corrected
+  behavior.

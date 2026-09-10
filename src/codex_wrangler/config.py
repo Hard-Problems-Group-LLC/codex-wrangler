@@ -16,12 +16,20 @@ from .constants import (
     DEFAULT_NPM_INSTALL_LOGLEVEL,
     DEFAULT_NPM_TIMEOUT_SECONDS,
     DEFAULT_README_FILENAME,
+    LEGACY_LOCAL_DIR,
     NPM_INSTALL_LOGLEVELS,
 )
 from .layout import build_layout, read_existing_state, resolve_project_root
+from .migration import (
+    build_default_layout_migration,
+    discover_pending_legacy_home_mode,
+    legacy_layout_from_canonical,
+    select_default_state_layout,
+)
 from .models import CodexWranglerError, Config, ExistingState
 from .repair import build_repair_plan
 from .releases import infer_codex_channel
+from .slots import discover_active_runtime
 
 MISSING_DASH_FLAG_HINTS = {
     "channel": "--channel",
@@ -300,16 +308,20 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--skip-install",
         action="store_true",
-        help="Write managed files but skip npm install.",
+        help=(
+            "Resolve and report the requested package selection without "
+            "creating a candidate or rewriting published managed files."
+        ),
     )
     parser.add_argument(
         "--repair-install",
         action="store_true",
         help=(
-            "Before npm install, remove only managed npm install artifacts "
-            "under .codex-local: node_modules, package-lock.json, and the "
-            "npx scratch cache. This does not remove .codex-home."
-        ),
+            "Compatibility flag for install/upgrade recovery: build and "
+            "validate the normal unique A/B candidate while preserving the "
+            "active runtime, rollback slot, and isolated Codex HOME (default "
+            "{})."
+        ).format(DEFAULT_HOME_DIR),
     )
     parser.add_argument(
         "--npm-timeout-seconds",
@@ -392,10 +404,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             repair_incompatible_options.append("--skip-install")
         if args.repair_install:
             repair_incompatible_options.append("--repair-install")
-        if args.shared_home is not None:
-            repair_incompatible_options.append(
-                "--shared-home" if args.shared_home else "--isolated-home"
-            )
         if args.set_reasonable_permissions:
             repair_incompatible_options.append("--set-reasonable-permissions")
         if args.clear_reasonable_permissions:
@@ -515,9 +523,31 @@ def is_reasonable_permissions_reconfigure(
         return False
     if not (args.set_reasonable_permissions or args.clear_reasonable_permissions):
         return False
+    if args.shared_home is not None:
+        return False
     if args.channel is not None or args.requested_version is not None:
         return False
     return has_existing_managed_selection(existing)
+
+
+def managed_authority_token(
+    existing: ExistingState,
+    active_slot: Optional[str],
+    active_pointer_kind: Optional[str],
+) -> Tuple[object, ...]:
+    """Snapshot the managed authority that one CLI configuration observed."""
+
+    return (
+        existing.requested_codex_selector,
+        existing.codex_channel,
+        existing.pinned_codex_version,
+        existing.shared_home,
+        existing.reasonable_permissions_enabled,
+        tuple(sorted(existing.available_versions.items())),
+        existing.available_versions_updated_at,
+        active_slot,
+        active_pointer_kind,
+    )
 
 
 def existing_codex_state(
@@ -605,19 +635,110 @@ def config_from_args(args: argparse.Namespace) -> Config:
         else (args.project_root or ".")
     )
     project_root = resolve_config_project_root(raw_project_root)
-    layout = build_layout(
+    uses_default_layout = args.local_dir is None and args.codex_home_dir is None
+    canonical_layout = build_layout(
         project_root=project_root,
         local_dir_raw=args.local_dir or DEFAULT_LOCAL_DIR,
         codex_home_raw=args.codex_home_dir or DEFAULT_HOME_DIR,
         launcher_raw=args.launcher or str(DEFAULT_LAUNCHER_RELATIVE_PATH),
         readme_raw=args.readme_local or DEFAULT_README_FILENAME,
+        allow_default_migration_staging=uses_default_layout,
     )
-    existing = read_existing_state(layout)
+
+    legacy_layout = None
+    state_layout = canonical_layout
+    if uses_default_layout:
+        legacy_layout = legacy_layout_from_canonical(canonical_layout)
+        state_layout = select_default_state_layout(
+            canonical_layout,
+            legacy_layout,
+        )
+
+    try:
+        active_runtime = discover_active_runtime(state_layout)
+    except CodexWranglerError:
+        active_slot = None
+        active_pointer_kind = None
+    else:
+        active_slot = active_runtime.slot_name
+        active_pointer_kind = active_runtime.pointer_kind
+    existing = read_existing_state(state_layout)
+    observed_authority_token = managed_authority_token(
+        existing,
+        active_slot,
+        active_pointer_kind,
+    )
+    pending_legacy_home_mode_discovered = False
+    if legacy_layout is not None:
+        pending_legacy_home_mode = discover_pending_legacy_home_mode(
+            canonical_layout,
+            state_layout,
+        )
+        if pending_legacy_home_mode is not None:
+            # Active-slot authority must override a stale root projection after
+            # a crash between the runtime and isolated-HOME exchanges.
+            existing.shared_home = pending_legacy_home_mode
+            pending_legacy_home_mode_discovered = True
+    if operation == "repair":
+        if existing.shared_home is None and args.shared_home is None:
+            raise CodexWranglerError(
+                "Repair cannot recover whether the damaged install used shared "
+                "or isolated HOME from surviving authority. Rerun with exactly "
+                "one explicit --shared-home or --isolated-home choice after "
+                "confirming where its history belongs; nothing was changed."
+            )
+        if (
+            existing.shared_home is not None
+            and args.shared_home is not None
+            and bool(args.shared_home) != existing.shared_home
+        ):
+            raise CodexWranglerError(
+                "Repair cannot change the HOME mode recorded by surviving "
+                "authority. Use repair without a HOME override; reconfigure only "
+                "after recovery completes."
+            )
     shared_home = determine_shared_home(args, existing)
     reasonable_permissions_enabled = determine_reasonable_permissions(args, existing)
     reconfigure_only = is_reasonable_permissions_reconfigure(args, existing, operation)
+
+    migration_requested = (
+        not bool(args.dry_run)
+        and not bool(args.skip_install)
+        and operation not in ("inspect", "selftest", "uninstall")
+    )
+    legacy_namespace_transition_pending = legacy_layout is not None and (
+        state_layout.local_dir_relative == LEGACY_LOCAL_DIR
+        or pending_legacy_home_mode_discovered
+    )
+    if (
+        legacy_namespace_transition_pending
+        and migration_requested
+        and args.shared_home is not None
+        and existing.shared_home is not None
+        and bool(args.shared_home) != existing.shared_home
+    ):
+        raise CodexWranglerError(
+            "Cannot change between shared and isolated HOME while the legacy "
+            "Codex layout is pending migration. Rerun without the HOME-mode "
+            "override to migrate using the recorded mode, then change the "
+            "mode in a second canonical-layout operation. No managed path was "
+            "changed."
+        )
+
+    layout_migration = None
+    if legacy_layout is not None:
+        layout_migration = build_default_layout_migration(
+            canonical_layout,
+            legacy_layout,
+            shared_home=shared_home,
+            require_managed_local=migration_requested,
+        )
+
+    migration_enabled = layout_migration is not None and migration_requested
+    layout = canonical_layout if migration_enabled else state_layout
+
     if operation == "repair":
-        repair_plan = build_repair_plan(layout)
+        repair_plan = build_repair_plan(state_layout)
         codex_selector = repair_plan.codex_version
         codex_channel = infer_codex_channel(repair_plan.codex_version)
         codex_version = repair_plan.codex_version
@@ -639,6 +760,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         dry_run=bool(args.dry_run),
         layout=layout,
         version_source=version_source,
+        layout_migration=layout_migration,
         reasonable_permissions_enabled=reasonable_permissions_enabled,
         reconfigure_only=reconfigure_only,
         repair_install=(operation == "repair" or bool(args.repair_install)),
@@ -646,4 +768,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
         npm_install_loglevel=args.npm_install_loglevel,
         available_versions=dict(existing.available_versions),
         available_versions_updated_at=existing.available_versions_updated_at,
+        active_slot=active_slot,
+        active_pointer_kind=active_pointer_kind,
+        observed_authority_token=observed_authority_token,
     )

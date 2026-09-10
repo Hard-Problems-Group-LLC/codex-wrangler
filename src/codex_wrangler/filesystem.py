@@ -3,13 +3,121 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
+import stat
+import tempfile
 from typing import Callable, Dict, Optional, Sequence
 
 from .constants import GITIGNORE_BEGIN, GITIGNORE_END, README_MARKER, SCRIPT_MARKER
 from .models import CodexWranglerError, Config
 from .runtime import eprint
+
+
+def require_regular_file_or_absent(path: Path, label: str) -> None:
+    """Reject a projection target that is linked or not a regular file."""
+
+    if not os.path.lexists(str(path)):
+        return
+    if path.is_symlink():
+        raise CodexWranglerError(
+            "Refusing to overwrite symbolic-link target for {}: {}".format(
+                label,
+                path,
+            )
+        )
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError as exc:
+        raise CodexWranglerError(
+            "Failed to inspect {} at {}: {}".format(label, path, exc)
+        ) from exc
+    if not stat.S_ISREG(mode):
+        raise CodexWranglerError(
+            "Expected a regular file or absent path for {}, but found another "
+            "filesystem object: {}".format(label, path)
+        )
+
+
+def read_regular_text_if_present(path: Path, label: str) -> Optional[str]:
+    """Read one regular projection target, or return ``None`` when absent."""
+
+    require_regular_file_or_absent(path, label)
+    if not os.path.lexists(str(path)):
+        return None
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise CodexWranglerError(
+            "Failed to read {} at {}: {}".format(label, path, exc)
+        ) from exc
+
+
+def fsync_directory(path: Path) -> None:
+    """Flush directory entries when the current platform supports it."""
+
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        if os.name == "nt":
+            return
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError:
+            if os.name != "nt":
+                raise
+    finally:
+        os.close(descriptor)
+
+
+def atomic_write_text(
+    path: Path,
+    content: str,
+    *,
+    executable: bool = False,
+) -> None:
+    """Durably replace one regular text file without a truncated live state."""
+
+    require_regular_file_or_absent(path, "managed text projection")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = 0o755 if executable else 0o644
+    if path.exists() and path.is_file():
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if executable:
+            mode |= 0o111
+    descriptor, temporary_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=".{}.".format(path.name),
+        suffix=".tmp",
+    )
+    temporary = Path(temporary_name)
+    replaced = False
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+            handle.flush()
+            os.chmod(temporary, mode)
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        replaced = True
+        fsync_directory(path.parent)
+    except OSError as exc:
+        if replaced:
+            raise CodexWranglerError(
+                "Atomically replaced {}, but failed to flush its containing "
+                "directory; the new file is visible with uncertain crash "
+                "durability: {}".format(path, exc)
+            ) from exc
+        raise CodexWranglerError(
+            "Failed to atomically replace {}: {}".format(path, exc)
+        ) from exc
+    finally:
+        if temporary.exists():
+            temporary.unlink()
 
 
 def _block_end_index(text: str, marker: str) -> int:
@@ -29,9 +137,13 @@ def upsert_gitignore_block(
 ) -> None:
     """Insert or replace the managed `.gitignore` block idempotently."""
 
-    existing_text = ""
-    if gitignore_path.exists():
-        existing_text = gitignore_path.read_text(encoding="utf-8")
+    existing_text = (
+        read_regular_text_if_present(
+            gitignore_path,
+            "repository .gitignore",
+        )
+        or ""
+    )
 
     if GITIGNORE_BEGIN in existing_text and GITIGNORE_END not in existing_text:
         raise CodexWranglerError(
@@ -62,8 +174,7 @@ def upsert_gitignore_block(
     if dry_run:
         return
 
-    gitignore_path.parent.mkdir(parents=True, exist_ok=True)
-    gitignore_path.write_text(replacement, encoding="utf-8")
+    atomic_write_text(gitignore_path, replacement)
 
 
 def remove_gitignore_block(gitignore_path: Path, dry_run: bool) -> bool:
@@ -91,7 +202,7 @@ def remove_gitignore_block(gitignore_path: Path, dry_run: bool) -> bool:
     if dry_run:
         return True
 
-    gitignore_path.write_text(replacement, encoding="utf-8")
+    atomic_write_text(gitignore_path, replacement)
     return True
 
 
@@ -106,8 +217,8 @@ def write_text_file(
 ) -> None:
     """Write a deterministic text file with conservative overwrite rules."""
 
-    if path.exists():
-        existing = path.read_text(encoding="utf-8")
+    existing = read_regular_text_if_present(path, "managed text file")
+    if existing is not None:
         if existing == content:
             eprint("[codex-wrangler] Unchanged: {}".format(path))
             if executable and not dry_run:
@@ -129,10 +240,49 @@ def write_text_file(
     if dry_run:
         return
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    if executable:
-        path.chmod(path.stat().st_mode | 0o111)
+    atomic_write_text(path, content, executable=executable)
+
+
+def validate_text_file_write(
+    path: Path,
+    content: str,
+    force: bool,
+    *,
+    managed_markers: Sequence[str] = (),
+    managed_content_predicate: Optional[Callable[[str], bool]] = None,
+) -> None:
+    """Validate one future managed text replacement without changing state."""
+
+    existing = read_regular_text_if_present(path, "managed text file")
+    if existing is None or existing == content:
+        return
+    marker_present = any(marker in existing for marker in managed_markers)
+    predicate_matches = (
+        managed_content_predicate(existing)
+        if managed_content_predicate is not None
+        else False
+    )
+    if not force and not marker_present and not predicate_matches:
+        raise CodexWranglerError(
+            "Refusing to overwrite existing file without --force: {}".format(path)
+        )
+
+
+def validate_gitignore_block_update(gitignore_path: Path) -> None:
+    """Validate that a future managed ignore-block update is unambiguous."""
+
+    existing = (
+        read_regular_text_if_present(
+            gitignore_path,
+            "repository .gitignore",
+        )
+        or ""
+    )
+    if GITIGNORE_BEGIN in existing and GITIGNORE_END not in existing:
+        raise CodexWranglerError(
+            "Found a managed .gitignore begin marker without its end marker in "
+            "{}. Refusing to guess.".format(gitignore_path)
+        )
 
 
 def write_metadata(path: Path, payload: Dict[str, object], dry_run: bool) -> None:
@@ -143,10 +293,9 @@ def write_metadata(path: Path, payload: Dict[str, object], dry_run: bool) -> Non
     if dry_run:
         return
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    atomic_write_text(
+        path,
         json.dumps(payload, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
 
 
@@ -180,23 +329,70 @@ def ensure_managed_directories(config: Config) -> None:
 
 
 def require_safe_managed_path(path: Path, project_root: Path, label: str) -> None:
-    """Assert that a path is within the project root and not equal to it."""
+    """Require a contained path reached without symbolic-link components."""
 
-    resolved = path.resolve()
     try:
-        resolved.relative_to(project_root)
+        canonical_root = project_root.resolve(strict=True)
+    except OSError as exc:
+        raise CodexWranglerError(
+            "Failed to resolve the project root before touching {}: {}".format(
+                label,
+                exc,
+            )
+        ) from exc
+    lexical_path = Path(os.path.abspath(str(path)))
+    try:
+        relative_parts = lexical_path.relative_to(canonical_root).parts
     except ValueError as exc:
         raise CodexWranglerError(
             "{} is outside the project root and will not be touched: {}".format(
                 label, path
             )
         ) from exc
-    if resolved == project_root:
+    if not relative_parts:
         raise CodexWranglerError(
             "{} resolves to the project root itself and will not be touched.".format(
                 label
             )
         )
+
+    cursor = canonical_root
+    for index, part in enumerate(relative_parts):
+        cursor /= part
+        if not os.path.lexists(str(cursor)):
+            continue
+        try:
+            mode = os.lstat(cursor).st_mode
+        except OSError as exc:
+            raise CodexWranglerError(
+                "Failed to inspect {} path component {}: {}".format(
+                    label,
+                    cursor,
+                    exc,
+                )
+            ) from exc
+        if stat.S_ISLNK(mode):
+            raise CodexWranglerError(
+                "{} path may not contain a symbolic link component: {}".format(
+                    label,
+                    cursor,
+                )
+            )
+        if index < len(relative_parts) - 1 and not stat.S_ISDIR(mode):
+            raise CodexWranglerError(
+                "{} ancestor is not a directory: {}".format(label, cursor)
+            )
+
+    try:
+        resolved = lexical_path.resolve()
+        resolved.relative_to(canonical_root)
+    except (OSError, ValueError) as exc:
+        raise CodexWranglerError(
+            "{} cannot be resolved safely beneath the project root: {}".format(
+                label,
+                path,
+            )
+        ) from exc
 
 
 def remove_file_if_managed(
@@ -232,6 +428,7 @@ def remove_file_if_managed(
     if dry_run:
         return True
     path.unlink()
+    fsync_directory(path.parent)
     return True
 
 
@@ -262,6 +459,7 @@ def remove_tree(path: Path, label: str, project_root: Path, dry_run: bool) -> bo
         return True
 
     shutil.rmtree(path)
+    fsync_directory(path.parent)
     return True
 
 
@@ -278,4 +476,5 @@ def maybe_remove_empty_parent(path: Path, stop_at: Path, dry_run: bool) -> None:
             eprint("[codex-wrangler] {} empty directory: {}".format(action, current))
             if not dry_run:
                 current.rmdir()
+                fsync_directory(current.parent)
             current = current.parent

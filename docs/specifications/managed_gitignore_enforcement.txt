@@ -13,10 +13,17 @@ This specification covers the managed `.gitignore` block that
 
 Requirements
 ------------
-1. Startup enforcement
-   Every normal `codex-wrangler` operation that is not uninstall cleanup must
-   ensure the target project's `.gitignore` contains the managed block before
-   running operation-specific behavior.
+1. Mutating-operation enforcement
+   Every successful operation that installs, upgrades, switches channels,
+   repairs, updates, or reconfigures managed state must ensure the target
+   project's `.gitignore` contains the managed block. Package-changing
+   operations must prove and publish the full block under their maintenance
+   lock before candidate or slot mutation. After activation succeeds, they
+   must retain that coverage while creating an isolated HOME or writing the
+   launcher, local README, root metadata, or other generated support
+   projections. A canonical-layout
+   migration must likewise publish the full block before writing its bridge
+   launcher or moving context into the canonical namespace.
 2. Missing file
    When the target project has no `.gitignore`, `codex-wrangler` must create
    one containing only the managed block.
@@ -30,15 +37,33 @@ Requirements
    user-owned rules.
 5. Required entries
    The managed block must contain an explanatory comment plus ignore rules for
-   `.codex`, `bin/codex-local`, and the existing local Codex managed artifacts.
+   `.local/`, the canonical `.local/codex/` and
+   `.local/codex-home/` trees, `.codex`, `bin/codex-local`,
+   the local operator guide, and both deprecated flat-path compatibility
+   names. Legacy rules must match both real directories and compatibility
+   symlinks, so they may not rely only on directory-form trailing slashes.
+   Explicit legacy entries remain required so dangling diagnostic evidence
+   cannot become tracked if a migration stops partway.
 6. Uninstall cleanup
-   `--uninstall` remains responsible for removing the managed block as part
-   of conservative cleanup. It must not recreate the block before removing it.
+   `--uninstall` remains responsible for removing the full managed block
+   as part of conservative cleanup. It must then retain only the stable
+   maintenance-lock ignore entry needed to prevent lock-inode replacement
+   races.
+7. Read-only operations
+   `--inspect`, `--selftest`, and every `--dry-run` path must not create or
+   modify `.gitignore`. Diagnostic and preview operations report missing or
+   invalid managed state without changing the target merely to hide artifacts.
 
 Validation
 ----------
 - Unit tests must cover creating `.gitignore` with the managed block.
 - Unit tests must cover appending the managed block even when `.codex` and
   `bin/codex-local` already exist outside it.
-- Entry-point tests must cover enforcing the managed block before an
-  operation such as `--inspect` delegates to operation-specific behavior.
+- Operation tests must cover publishing the managed block during successful
+  mutating maintenance and rejecting an unpublishable block before package or
+  slot mutation.
+- Failure-injection tests must prove that support-file or migration-bridge
+  publication failures after ignore publication leave the complete managed
+  block in place without creating a new runnable launcher.
+- Entry-point tests must cover leaving `.gitignore` absent and unchanged when
+  `--inspect` delegates to operation-specific behavior.

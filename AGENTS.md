@@ -61,6 +61,11 @@ project needs behavior different from TheKnowledge's own repository setup. -->
 - Use `project-management/deferred.txt` for explicitly deferred work.
 - Queue brief commit-ready summaries in
   `project-management/state/pending-commit-changes.txt`.
+- Treat `pending-commit-changes.txt` as short-lived commit-body input, not
+  durable release history. Projects with durable user-facing,
+  operator-facing, or release-facing history needs should keep a
+  `CHANGELOG.md` and copy or summarize notable pending-queue entries there
+  before the queue is cleared by a successful commit.
 - Maintain bug lifecycle summary files under `project-management/bugs/` and
   detailed bug records under `open/`, `in-progress/`, and `closed/`.
 - Use `TheKnowledge/standards-and-practices/docs/`
@@ -75,6 +80,22 @@ project needs behavior different from TheKnowledge's own repository setup. -->
   starter documents, and generated guidance unless a file is machine-consumed,
   intentionally extensionless, or temporarily kept in a legacy format during
   an explicit migration.
+- Prefer patch-style edits for small, localized manual changes. For
+  whole-file records, generated content, mechanical multi-file updates, or
+  environments where patch helpers are unavailable or failing, use explicit
+  named-file edits or short scripts with reviewable scope. Always inspect the
+  resulting diff, preserve unrelated user work, and record repeated tool
+  failures as bugs or local reliability notes instead of retrying them
+  indefinitely.
+- Treat project-root `.local/` as the standard home for checkout-local
+  operator state and local policy inputs that AI agents must consider but
+  must not commit or push.
+- Load `.local/ai-local-notes.md` or `.local/ai-local-notes.txt` before broad
+  automation, validation, staging, or cleanup when either file exists.
+- Treat those local note files plus `.theknowledge-restricted-names.local` as
+  local-only policy inputs: obey them when present, keep them untracked, and
+  do not copy their contents into tracked prose unless the operator explicitly
+  directs that.
 - Do not name external client projects in TheKnowledge-bound records,
   proposals, bugs, feedback, or generated guidance. Use `an external project`
   or another operator-approved generic phrase instead.
@@ -99,12 +120,22 @@ project needs behavior different from TheKnowledge's own repository setup. -->
   `set-context-bootstrap.sh`, `requirements-dev.txt`,
   `scripts/dev_setup.py`, `scripts/python_environment_bootstrap.py`,
   `scripts/tool_validation_profiles.py`, `tool_execution_constraints.json`,
-  and `tool_validation_profiles.json`. That flow starts from Python 3.9+,
-  defaults to a user-local standard install, supports explicit repo-local
-  development mode and venv-only mode, permits system installs only with
-  `--system` under root, and requires `direnv` for development mode.
-  `bootstrap.sh` and
-  `bootstrap-stage2.py` remain compatibility wrappers.
+  `tool_validation_profiles.json`, and a managed `.gitignore` block. That
+  flow starts from Python 3.9+, defaults to a user-local standard install,
+  supports explicit repo-local development mode and venv-only mode, permits
+  system installs only with `--system` under root, requires `direnv` for
+  development mode, and proactively ignores `.local/`,
+  `.theknowledge-restricted-names.local`, `.local/codex/`,
+  `.local/codex-home/`, legacy `.codex-local/` and
+  `.codex-home/`, `.codex`, `bin/codex-local`, and
+  `README-LOCAL-Start-Codex.md`.
+  `bootstrap.sh` and `bootstrap-stage2.py` remain compatibility wrappers.
+- Treat those Codex and codex-wrangler paths as local operator tooling or
+  generated artifacts. Do not classify
+  `.local/codex/package.json` or the legacy
+  `.codex-local/package.json` as the consuming repository's tracked
+  dependency manifest, and extend the managed
+  ignore baseline deliberately when future local Codex artifact paths appear.
 - For substantive development work, prefix intermediary status
   updates with an inline bracketed ISO 8601 timestamp including the
   timezone offset, for example
@@ -116,6 +147,26 @@ project needs behavior different from TheKnowledge's own repository setup. -->
 - Keep final answers readable; this rule applies to intermediary
   development updates for workflow profiling, not to every sentence
   of casual chat.
+- Treat the literal phrase `collision resume` as a session-continuity
+  directive for the current workspace. Do not assume the newest SSH, `mosh`,
+  terminal, or Codex session is correct; inspect candidate sessions when
+  session data is available.
+- For `collision resume`, prefer the prior session whose workspace, age,
+  origin, and current activity best match the task. If ambiguity remains,
+  summarize the candidates by origin, age, workspace, and current activity
+  before acting.
+- Preserve both the phrase `collision resume` and its operational meaning in
+  handoffs, compactions, and summaries.
+- Before mutating outside the active project root, stop and ask for explicit
+  cross-project confirmation in the current session. Name the active project
+  or path, the target project or path, and the intended change class.
+- Cross-project mutations include file edits, deletes, generated files,
+  project-management records, service restarts, container rebuilds, queued
+  jobs, commits, pushes, and deployments. Read-only inspection may proceed
+  when needed to identify the owning project, repository, or service.
+- Do not infer cross-project authorization from a URL, adjacent discussion,
+  command-escalation approval, or a prior session. When practical, disclose
+  any detected active writer in the target project before proceeding.
 - Before any `git add`, list the files about to be staged and ask the
   operator whether to review them.
 - Offer these staging-review choices: `1.` review at least one file in the
@@ -164,9 +215,13 @@ project needs behavior different from TheKnowledge's own repository setup. -->
   the current operator, and use `abort` when you want to restore the prior
   state without publishing.
 - When the active `TheKnowledge/` checkout is read-only for upstream
-  maintenance, draft the request first under `ECRs/TheKnowledge/` in the
-  consuming project so the handoff stays reviewable before it reaches a
-  writable TheKnowledge checkout.
+  maintenance, draft the request first under `ECRs/TheKnowledge/open/` in
+  the consuming project so the handoff stays reviewable before it reaches a
+  writable TheKnowledge checkout. Move the record to
+  `ECRs/TheKnowledge/in-progress/` when active upstream handling begins, and
+  move it to `ECRs/TheKnowledge/closed/` when a TheKnowledge proposal,
+  implementation, rejection, or deferral record resolves it. Closed records
+  should note which TheKnowledge record or commit settled the request.
 - The `Feedback` branch is only for cross-project feedback flowing back
   into TheKnowledge. Direct maintenance of TheKnowledge itself should keep
   using its normal internal trees on `trunk`.
@@ -177,8 +232,19 @@ project needs behavior different from TheKnowledge's own repository setup. -->
   `python TheKnowledge/scripts/validate_knacks.py --project-root .`.
 - Knack validation should stay lightweight: malformed Markdown and
   high-entropy findings are errors, word-count overruns are warnings, the
-  validator uses `.git/knack-validation-cache.json`, and path collisions with
+  validator uses `.git/knack-validation-cache.json` when a writable
+  Git-backed cache path is available and
+  `.cache/knack-validation-cache.json` otherwise, and path collisions with
   stock knacks should warn while still evaluating both files.
+- Prefer real local implementations when they are deterministic, cheap, and
+  safe. Prefer deterministic fixtures and fakes before dynamic mocks.
+- Reserve mocks for narrow external services, unsafe side effects, expensive
+  resources, nondeterministic dependencies, and hard-to-trigger failure
+  paths. Pair important mocked behavior with real integration, contract,
+  smoke, browser, or scripted coverage.
+- Avoid mocking owned application logic in integration, contract, smoke,
+  browser, and end-to-end tests unless the owned boundary is unsafe or
+  unavailable.
 - When updating the TheKnowledge submodule itself, prefer
   `python TheKnowledge/scripts/update_theknowledge_submodule.py`
   `--project-root . --knowledge-root TheKnowledge`. That helper fetches

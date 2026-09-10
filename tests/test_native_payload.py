@@ -1,11 +1,24 @@
 """Tests for native executable declared-extent validation."""
 
+import os
 import struct
 
 import pytest
 
 from codex_wrangler.models import CodexWranglerError
 from codex_wrangler.native_payload import validate_native_payload
+
+
+def test_validate_native_payload_rejects_fifo_without_blocking(tmp_path):
+    """Native inspection rejects special files before opening them."""
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("FIFO regression requires os.mkfifo")
+    native_path = tmp_path / "codex"
+    os.mkfifo(native_path)
+
+    with pytest.raises(CodexWranglerError, match="not a regular file"):
+        validate_native_payload(native_path)
 
 
 def build_elf64(file_size: int, declared_size: int) -> bytes:

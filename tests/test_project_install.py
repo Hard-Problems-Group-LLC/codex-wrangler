@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import codex_wrangler.project_install as project_install_module
@@ -48,6 +49,34 @@ def test_build_project_install_command_for_standard_mode(tmp_path):
 
     assert "--editable" not in command
     assert command[-1] == str(tmp_path.resolve())
+
+
+def test_install_project_package_passes_explicit_environment(monkeypatch, tmp_path):
+    captured = {}
+    selected_environment = {
+        "HOME": str(tmp_path / "operator"),
+        "PIP_CACHE_DIR": str(tmp_path / "operator" / ".cache" / "pip"),
+    }
+
+    def fake_run(command, *, cwd, env, check):
+        captured["command"] = command
+        captured["cwd"] = cwd
+        captured["env"] = env
+        captured["check"] = check
+
+    monkeypatch.setattr(project_install_module.subprocess, "run", fake_run)
+
+    project_install_module.install_project_package(
+        tmp_path / "venv" / "bin" / "python",
+        tmp_path,
+        "standard",
+        env=selected_environment,
+    )
+
+    assert captured["cwd"] == str(tmp_path)
+    assert captured["env"] == selected_environment
+    assert captured["env"] is not selected_environment
+    assert captured["check"] is True
 
 
 def test_resolve_target_venv_prefers_explicit_arg(tmp_path):
@@ -139,10 +168,12 @@ def test_main_preserves_symlinked_venv_python_argument(tmp_path, monkeypatch):
         candidate_python: Path,
         candidate_repo_root: Path,
         mode: str,
+        env,
     ) -> None:
         captured["python"] = candidate_python
         captured["repo_root"] = candidate_repo_root
         captured["mode"] = mode
+        captured["env"] = env
 
     def fake_manage_project_launcher(
         candidate_venv_path: Path,
@@ -195,3 +226,4 @@ def test_main_preserves_symlinked_venv_python_argument(tmp_path, monkeypatch):
     assert captured["bin_dir"] == bin_dir
     assert captured["mode"] == "standard"
     assert captured["scope"] == "user"
+    assert captured["env"] is os.environ

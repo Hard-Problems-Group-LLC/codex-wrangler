@@ -15,7 +15,9 @@ This specification covers:
 
 - `codex-wrangler --set-reasonable-permissions`;
 - `codex-wrangler --clear-reasonable-permissions`;
-- managed metadata under `.codex-local/.codex-wrangler.json`;
+- managed metadata under
+  `.local/codex/.codex-wrangler.json`, with exact legacy metadata accepted
+  only during canonical-layout migration;
 - the generated `bin/codex-local` launcher;
 - the generated `README-LOCAL-Start-Codex.md`; and
 - `codex-wrangler --inspect`.

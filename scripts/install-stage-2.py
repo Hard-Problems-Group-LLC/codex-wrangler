@@ -12,7 +12,7 @@ import shutil
 import stat
 import subprocess
 import sys
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Mapping, Optional, Sequence, Tuple
 from urllib.request import urlopen
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -29,6 +29,7 @@ from codex_wrangler.install_scope import (  # noqa: E402
     default_user_bin_dir,
     describe_user_home_source,
     resolve_user_home,
+    user_scope_subprocess_environment,
 )
 
 from python_environment_bootstrap import (  # noqa: E402
@@ -116,7 +117,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--skip-submodule-init",
         action="store_true",
-        help="Skip `git submodule update --init --recursive`.",
+        help="Skip initialize-only preparation of missing nested submodules.",
     )
     parser.add_argument(
         "--force-direct-run",
@@ -161,7 +162,7 @@ def install_scope(args: argparse.Namespace) -> str:
 def run(
     command: Sequence[str],
     cwd: Optional[Path] = None,
-    env: Optional[Dict[str, str]] = None,
+    env: Optional[Mapping[str, str]] = None,
     capture_output: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run one external command with consistent settings."""
@@ -169,24 +170,194 @@ def run(
     return subprocess.run(
         list(command),
         cwd=str(cwd) if cwd else None,
-        env=env,
+        env=dict(env) if env is not None else None,
         check=True,
         capture_output=capture_output,
         text=True,
     )
 
 
-def ensure_submodules(skip: bool) -> None:
-    """Initialize submodules when the repository uses them."""
+def configured_submodule_paths(
+    repo_root: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> Tuple[Path, ...]:
+    """Return direct submodule paths declared by one repository checkout."""
+
+    gitmodules = repo_root / ".gitmodules"
+    if not gitmodules.is_file():
+        return ()
+    try:
+        completed = run(
+            [
+                "git",
+                "config",
+                "--file",
+                str(gitmodules),
+                "--get-regexp",
+                r"^submodule\..*\.path$",
+            ],
+            cwd=repo_root,
+            env=env,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as error:
+        if error.returncode == 1 and not (error.stdout or "").strip():
+            return ()
+        raise
+
+    paths = []
+    for line in completed.stdout.splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) != 2:
+            raise RuntimeError("Malformed submodule path record: {!r}".format(line))
+        relative_path = Path(fields[1])
+        if (
+            not relative_path.parts
+            or relative_path.is_absolute()
+            or ".." in relative_path.parts
+        ):
+            raise RuntimeError(
+                "Submodule path must stay within its repository: {}".format(
+                    relative_path
+                )
+            )
+        paths.append(relative_path)
+    return tuple(paths)
+
+
+def validated_submodule_root(
+    repo_root: Path,
+    relative_path: Path,
+    *,
+    require_exists: bool,
+) -> Path:
+    """Return one contained, link-free submodule directory path."""
+
+    if (
+        not relative_path.parts
+        or relative_path.is_absolute()
+        or ".." in relative_path.parts
+    ):
+        raise RuntimeError(
+            "Submodule path must stay within its repository: {}".format(relative_path)
+        )
+
+    try:
+        repo_metadata = repo_root.lstat()
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Submodule repository root is missing: {}".format(repo_root)
+        ) from error
+    if not stat.S_ISDIR(repo_metadata.st_mode):
+        raise RuntimeError(
+            "Submodule repository root must be a real directory: {}".format(repo_root)
+        )
+
+    resolved_repo_root = repo_root.resolve(strict=True)
+    child_root = repo_root / relative_path
+    current = repo_root
+    missing_component = None
+    for part in relative_path.parts:
+        current = current / part
+        try:
+            component_metadata = current.lstat()
+        except FileNotFoundError:
+            missing_component = current
+            break
+        if not stat.S_ISDIR(component_metadata.st_mode):
+            raise RuntimeError(
+                "Submodule path component must be a real directory: {}".format(current)
+            )
+
+    resolved_child_root = child_root.resolve(strict=False)
+    try:
+        resolved_child_root.relative_to(resolved_repo_root)
+    except ValueError as error:
+        raise RuntimeError(
+            "Submodule path escapes its repository: {}".format(relative_path)
+        ) from error
+    if resolved_child_root == resolved_repo_root:
+        raise RuntimeError(
+            "Submodule path must name a child of its repository: {}".format(
+                relative_path
+            )
+        )
+    if require_exists and missing_component is not None:
+        raise RuntimeError(
+            "Initialized submodule directory is missing: {}".format(child_root)
+        )
+    return child_root
+
+
+def ensure_missing_submodules(
+    repo_root: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> None:
+    """Recursively initialize absent submodules without reconciling existing ones."""
+
+    for relative_path in configured_submodule_paths(repo_root, env=env):
+        # Refuse a replaced checkout before even asking Git to inspect it. Git
+        # otherwise follows a submodule path into the replacement repository.
+        validated_submodule_root(
+            repo_root,
+            relative_path,
+            require_exists=False,
+        )
+        completed = run(
+            ["git", "submodule", "status", "--", str(relative_path)],
+            cwd=repo_root,
+            env=env,
+            capture_output=True,
+        )
+        status_lines = completed.stdout.splitlines()
+        if len(status_lines) != 1 or not status_lines[0]:
+            raise RuntimeError(
+                "Git did not report one submodule status for {}".format(relative_path)
+            )
+        status = status_lines[0][0]
+        if status == "-":
+            validated_submodule_root(
+                repo_root,
+                relative_path,
+                require_exists=False,
+            )
+            run(
+                ["git", "submodule", "update", "--init", "--", str(relative_path)],
+                cwd=repo_root,
+                env=env,
+            )
+        elif status == "U":
+            raise RuntimeError(
+                "Cannot initialize conflicted submodule: {}".format(relative_path)
+            )
+        elif status not in (" ", "+"):
+            raise RuntimeError(
+                "Unknown submodule status {!r} for {}".format(status, relative_path)
+            )
+
+        child_root = validated_submodule_root(
+            repo_root,
+            relative_path,
+            require_exists=True,
+        )
+        ensure_missing_submodules(child_root, env=env)
+
+
+def ensure_submodules(
+    skip: bool,
+    env: Optional[Mapping[str, str]] = None,
+) -> None:
+    """Initialize only missing submodules, preserving existing checkout state."""
 
     if skip:
         return
-    if not (REPO_ROOT / ".gitmodules").is_file():
-        return
-    run(["git", "submodule", "update", "--init", "--recursive"], cwd=REPO_ROOT)
+    ensure_missing_submodules(REPO_ROOT, env=env)
 
 
-def ensure_runtime_contexts(user_home: Path) -> Tuple[Path, str, Path]:
+def ensure_runtime_contexts(
+    user_home: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> Tuple[Path, str, Path]:
     """Install the configured runtime pyenv context after bootstrap validation."""
 
     config = load_python_environment_config(REPO_ROOT)
@@ -196,8 +367,42 @@ def ensure_runtime_contexts(user_home: Path) -> Tuple[Path, str, Path]:
         "install-stage-2.py",
     )
     pyenv_root_path = default_install_pyenv_root(user_home)
-    ensure_pyenv_installed(pyenv_root_path, run)
-    runtime_selection = ensure_pyenv_context(pyenv_root_path, config.runtime, run)
+    selected_environment = dict(env) if env is not None else None
+
+    def scoped_run(
+        command: Sequence[str],
+        env: Optional[Mapping[str, str]] = None,
+    ) -> subprocess.CompletedProcess:
+        """Run one runtime-bootstrap child in the selected user context."""
+
+        if selected_environment is None:
+            child_environment = dict(env) if env is not None else None
+        else:
+            child_environment = dict(selected_environment)
+            if env is not None:
+                child_environment.update(env)
+            for name in tuple(child_environment):
+                if name.startswith("XDG_"):
+                    child_environment.pop(name)
+            child_environment.pop("CODEX_HOME", None)
+            child_environment.pop("CLAUDE_CONFIG_DIR", None)
+            for name in (
+                "HOME",
+                "XDG_CONFIG_HOME",
+                "XDG_CACHE_HOME",
+                "XDG_STATE_HOME",
+                "XDG_DATA_HOME",
+                "PIP_CACHE_DIR",
+            ):
+                child_environment[name] = selected_environment[name]
+        return run(command, env=child_environment)
+
+    ensure_pyenv_installed(pyenv_root_path, scoped_run)
+    runtime_selection = ensure_pyenv_context(
+        pyenv_root_path,
+        config.runtime,
+        scoped_run,
+    )
     runtime_python = pyenv_python_executable(pyenv_root_path, runtime_selection)
     if not runtime_python.is_file():
         raise RuntimeError(
@@ -207,7 +412,10 @@ def ensure_runtime_contexts(user_home: Path) -> Tuple[Path, str, Path]:
     return pyenv_root_path, runtime_selection, runtime_python
 
 
-def ensure_repo_venv(runtime_python: Path) -> Path:
+def ensure_repo_venv(
+    runtime_python: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> Path:
     """Create or refresh `.venv` using the configured runtime interpreter."""
 
     run(
@@ -218,6 +426,7 @@ def ensure_repo_venv(runtime_python: Path) -> Path:
             str(runtime_python),
         ],
         cwd=REPO_ROOT,
+        env=env,
     )
     return REPO_ROOT / ".venv" / "bin" / "python"
 
@@ -230,7 +439,10 @@ def venv_python_path(venv_path: Path) -> Path:
     return venv_path / bin_dir / executable
 
 
-def interpreter_base_identity(python_executable: Path) -> Path:
+def interpreter_base_identity(
+    python_executable: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> Path:
     """Return the canonical base interpreter used by one Python executable."""
 
     completed = run(
@@ -244,6 +456,7 @@ def interpreter_base_identity(python_executable: Path) -> Path:
             ),
         ],
         cwd=REPO_ROOT,
+        env=env,
         capture_output=True,
     )
     identity = completed.stdout.strip()
@@ -254,29 +467,41 @@ def interpreter_base_identity(python_executable: Path) -> Path:
     return Path(identity)
 
 
-def ensure_virtualenv(base_python: Path, venv_path: Path) -> Path:
+def ensure_virtualenv(
+    base_python: Path,
+    venv_path: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> Path:
     """Create a virtual environment or rebuild it after base-runtime drift."""
 
     venv_python = venv_python_path(venv_path)
     if venv_python.is_file():
         try:
-            if interpreter_base_identity(venv_python) == interpreter_base_identity(
-                base_python
-            ):
+            if interpreter_base_identity(
+                venv_python, env=env
+            ) == interpreter_base_identity(base_python, env=env):
                 return venv_python
         except (OSError, RuntimeError, subprocess.CalledProcessError):
             pass
         run(
             [str(base_python), "-m", "venv", "--clear", str(venv_path)],
             cwd=REPO_ROOT,
+            env=env,
         )
         return venv_python
     venv_path.parent.mkdir(parents=True, exist_ok=True)
-    run([str(base_python), "-m", "venv", str(venv_path)], cwd=REPO_ROOT)
+    run(
+        [str(base_python), "-m", "venv", str(venv_path)],
+        cwd=REPO_ROOT,
+        env=env,
+    )
     return venv_python
 
 
-def install_build_bootstrap(venv_python: Path) -> None:
+def install_build_bootstrap(
+    venv_python: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> None:
     """Install the minimal build requirements for local package installs."""
 
     run(
@@ -289,6 +514,7 @@ def install_build_bootstrap(venv_python: Path) -> None:
             "wheel",
         ],
         cwd=REPO_ROOT,
+        env=env,
     )
 
 
@@ -336,13 +562,14 @@ def preferred_standard_base_python(
 def ensure_standard_install_venv(
     scope: str,
     user_home: Optional[Path] = None,
+    env: Optional[Mapping[str, str]] = None,
 ) -> Tuple[Path, Path, Path]:
     """Create or refresh the user or system venv used for standard installs."""
 
     venv_path = standard_install_venv_path(scope, user_home)
     base_python = preferred_standard_base_python(scope, user_home)
-    venv_python = ensure_virtualenv(base_python, venv_path)
-    install_build_bootstrap(venv_python)
+    venv_python = ensure_virtualenv(base_python, venv_path, env=env)
+    install_build_bootstrap(venv_python, env=env)
     return venv_path, venv_python, base_python
 
 
@@ -378,6 +605,7 @@ def run_project_install_hook(
     scope: str,
     venv_path: Path,
     bin_dir: Path,
+    env: Optional[Mapping[str, str]] = None,
 ) -> bool:
     """Run an optional project install hook when the repository provides one."""
 
@@ -400,6 +628,7 @@ def run_project_install_hook(
             str(bin_dir),
         ],
         cwd=REPO_ROOT,
+        env=env,
     )
     return True
 
@@ -424,18 +653,22 @@ def install_project(
     mode: str,
     scope: str,
     bin_dir: Path,
+    env: Optional[Mapping[str, str]] = None,
 ) -> None:
     """Install the repository according to the selected mode and scope."""
 
     if mode == "venv-only":
-        run_project_install_hook(venv_python, mode, scope, venv_path, bin_dir)
+        run_project_install_hook(venv_python, mode, scope, venv_path, bin_dir, env=env)
         return
-    if run_project_install_hook(venv_python, mode, scope, venv_path, bin_dir):
+    if run_project_install_hook(venv_python, mode, scope, venv_path, bin_dir, env=env):
         return
-    run(default_install_command(venv_python, mode), cwd=REPO_ROOT)
+    run(default_install_command(venv_python, mode), cwd=REPO_ROOT, env=env)
 
 
-def install_git_hooks(venv_python: Path) -> None:
+def install_git_hooks(
+    venv_python: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> None:
     """Install managed git hooks when the repository exposes an installer."""
 
     candidates = (
@@ -447,7 +680,7 @@ def install_git_hooks(venv_python: Path) -> None:
             command = [str(venv_python), str(installer)]
             if installer.parent.parent.name == "TheKnowledge":
                 command.extend(["--repo-root", str(REPO_ROOT)])
-            run(command, cwd=REPO_ROOT)
+            run(command, cwd=REPO_ROOT, env=env)
             return
 
 
@@ -523,18 +756,25 @@ def write_envrc() -> Path:
     return envrc_path
 
 
-def allow_direnv(direnv_path: Path, envrc_path: Path) -> None:
+def allow_direnv(
+    direnv_path: Path,
+    envrc_path: Path,
+    base_env: Optional[Mapping[str, str]] = None,
+) -> None:
     """Allow the repository direnv policy using the chosen binary."""
 
-    env = os.environ.copy()
+    env = dict(os.environ if base_env is None else base_env)
     env["PATH"] = str(direnv_path.parent) + os.pathsep + env.get("PATH", "")
     run([str(direnv_path), "allow", str(envrc_path.parent)], cwd=REPO_ROOT, env=env)
 
 
-def verify_install(venv_python: Path) -> None:
+def verify_install(
+    venv_python: Path,
+    env: Optional[Mapping[str, str]] = None,
+) -> None:
     """Run minimal post-bootstrap verification."""
 
-    run([str(venv_python), "--version"], cwd=REPO_ROOT)
+    run([str(venv_python), "--version"], cwd=REPO_ROOT, env=env)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -548,6 +788,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     target_user_home = None
     direnv_path = None
     envrc_path = None
+    subprocess_env = None
     try:
         ensure_started_by_stage_1(args.force_direct_run)
         scope = install_scope(args)
@@ -557,13 +798,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 args.user_home,
                 allow_isolated_home=args.allow_isolated_home,
             )
+        if target_user_home is not None:
+            subprocess_env = user_scope_subprocess_environment(target_user_home)
         launcher_bin_dir = launcher_dir_for_scope(scope, target_user_home)
-        ensure_submodules(args.skip_submodule_init)
+        ensure_submodules(args.skip_submodule_init, env=subprocess_env)
         if scope == REPO_SCOPE:
             pyenv_root_path, runtime_selection, runtime_python = (
-                ensure_runtime_contexts(target_user_home)
+                ensure_runtime_contexts(target_user_home, env=subprocess_env)
             )
-            venv_python = ensure_repo_venv(runtime_python)
+            venv_python = ensure_repo_venv(runtime_python, env=subprocess_env)
             install_venv = REPO_ROOT / ".venv"
             install_project(
                 venv_python,
@@ -571,8 +814,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 args.mode,
                 scope,
                 launcher_bin_dir,
+                env=subprocess_env,
             )
-            install_git_hooks(venv_python)
+            install_git_hooks(venv_python, env=subprocess_env)
             if not args.skip_shell_init_update:
                 ensure_shell_init(args.mode, target_user_home)
             if args.mode == "dev":
@@ -581,10 +825,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     user_home=target_user_home,
                 )
                 envrc_path = write_envrc()
-                allow_direnv(direnv_path, envrc_path)
+                allow_direnv(direnv_path, envrc_path, base_env=subprocess_env)
         else:
             install_venv, venv_python, selected_base_python = (
-                ensure_standard_install_venv(scope, target_user_home)
+                ensure_standard_install_venv(
+                    scope,
+                    target_user_home,
+                    env=subprocess_env,
+                )
             )
             install_project(
                 venv_python,
@@ -592,8 +840,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 args.mode,
                 scope,
                 launcher_bin_dir,
+                env=subprocess_env,
             )
-        verify_install(venv_python)
+        verify_install(venv_python, env=subprocess_env)
     except (RuntimeError, subprocess.CalledProcessError, OSError, ValueError) as error:
         print("[install-stage-2] FAIL: {}".format(error), file=sys.stderr)
         return 1

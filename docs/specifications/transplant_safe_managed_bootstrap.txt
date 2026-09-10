@@ -50,24 +50,35 @@ Requirements
    otherwise it must rebuild the venv before installation.
    Development mode must create or refresh the repository `.venv`, install the
    project in editable mode, and preserve the project-bound launcher policy.
-   Neither mode may treat a removed `.codex-local/node_modules` directory as
+   Neither mode may treat a removed `.local/codex/node_modules` directory as
    tracked source or silently adopt an emergency root-level npm project.
 7. Codex payload boundary
-   Recreating `.codex-local/node_modules` remains an explicit
+   Recreating `.local/codex/node_modules` remains an explicit
    `codex-wrangler` operation after the utility bootstrap. Repair mode must be
    used when surviving managed manifests or lockfiles disagree. The emergency
    root-level npm installation may be removed only after the isolated launcher
    and self-test pass.
 8. Protected assistant state
-   Existing `.codex-home` content is protected transplant state. Install and
+   Existing canonical `.local/codex-home` content and legacy
+   `.codex-home` content are protected transplant state. Install and
    repair operations must preserve authentication, memories, sessions, rules,
    history, goals, and other project-local assistant context even when the
-   `.codex-local` package tree and npm caches must be rebuilt. Any future state
-   migration must take a backup and transform content non-destructively.
+   `.local/codex` package tree and npm caches must be rebuilt. Canonical
+   namespace migration moves the directory identity atomically without
+   transforming content. Any later content-level state migration must take a
+   backup and transform content non-destructively.
 9. Host policy preservation
    Bootstrap must not replace Rocky's system Python, install packages into the
    system interpreter, infer Git identity, or rewrite organization-specific
    SSH host aliases.
+10. Contained submodule initialization
+   Recursive initialize-only traversal must reject absolute and parent-relative
+   paths. Before Git status, immediately before initialization, and before
+   nested recursion, every existing path component must be a real directory and
+   the resolved child must remain beneath its current repository. A final or
+   ancestor symlink must fail before any Git command can run in, initialize, or
+   recurse through an external checkout. An existing clean or divergent
+   submodule remains at its current commit.
 
 Validation
 ----------
@@ -75,8 +86,12 @@ Validation
   without Git subprocesses.
 - Unit tests must verify that stage 2 provisions only the configured runtime
   context and writes the matching `.python-version`.
-- Repair tests must place a sentinel under `.codex-home/.codex/memories` and
-  prove it survives managed npm cleanup and reinstall orchestration.
+- Real Git fixtures must prove initialize-only traversal preserves divergent
+  submodules and refuses final or ancestor links without executing a submodule
+  command in, or writing to, the external repository.
+- Repair tests must place a sentinel under
+  `.local/codex-home/.codex/memories` and prove it survives managed npm
+  cleanup and reinstall orchestration.
 - Entry-point tests must execute `bootstrap.sh` directly.
 - The full repository quality gate must pass under the managed `.venv`.
 - Real standard and development installs must pass on Rocky Linux 10.2.

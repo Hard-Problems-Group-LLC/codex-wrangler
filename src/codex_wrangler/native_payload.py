@@ -543,15 +543,29 @@ def _validate_pe32_plus(
 
 
 def validate_native_payload(path: Path) -> NativePayloadValidation:
-    """Validate one supported 64-bit executable's declared on-disk extents."""
+    """Validate one regular 64-bit executable without blocking on special files."""
 
+    descriptor = -1
     try:
-        with path.open("rb") as handle:
-            file_stat = os.fstat(handle.fileno())
-            if not stat.S_ISREG(file_stat.st_mode):
-                raise CodexWranglerError(
-                    "Native executable path is not a regular file: {}".format(path)
-                )
+        mode = os.lstat(path).st_mode
+        if not stat.S_ISREG(mode):
+            raise CodexWranglerError(
+                "Native executable path is not a regular file: {}".format(path)
+            )
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
+        descriptor = os.open(path, flags)
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise CodexWranglerError(
+                "Native executable path is not a regular file: {}".format(path)
+            )
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
             file_size = file_stat.st_size
             prefix = _read_exact(
                 handle, path, file_size, 0, 4, "native executable magic"
@@ -566,6 +580,9 @@ def validate_native_payload(path: Path) -> NativePayloadValidation:
         raise CodexWranglerError(
             "Failed to read native executable {}: {}".format(path, exc)
         ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
     raise CodexWranglerError(
         "Native executable {} has an unsupported or invalid file format.".format(path)
