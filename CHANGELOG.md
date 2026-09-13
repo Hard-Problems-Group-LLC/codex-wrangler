@@ -73,6 +73,9 @@ and this repository aims to follow
 
 ### Changed
 
+- Recorded the existing TheKnowledge checkout at `76202ee`, a three-commit
+  rewind from `751a52a`. Preserved consuming-project overrides without
+  performing an upstream upgrade or managed-file refresh.
 - Changed default runtime and isolated-HOME paths from the deprecated flat
   `.codex-local` and `.codex-home` names to children of
   `.local/`. Existing non-A/B and A/B installs migrate without inspecting,
