@@ -5,6 +5,22 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-09-13T13:34:52-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: completed security and validation preflight for operator-directed
+  ACP without further review. Published utility fixes as cd1009b and the
+  existing TheKnowledge rewind as 4f1626d on the bugfix branch, using the
+  supplied Matt Heck identity. Added ignore rules for the generated local
+  Claude launcher and start guide; preserved their contents outside Git.
+  Validation: the full uncached quality gate passed, including all 557 tests
+  in 54.40 seconds and native Codex smoke coverage. Explicit parent candidate
+  scans found no high-entropy lines; the entropy sentinel/tripwire passed.
+  Publication uses separate utility, submodule-pin, and local-artifact
+  changesets followed by the normal fast-forward integration into trunk.
+  No client checkout or protected context was modified.
+
+*
   Completed: 2026-09-13T13:21:56-07:00.
   Owner: Codex.
   Requestor: operator.

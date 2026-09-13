@@ -191,6 +191,10 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Generated local Claude operator tooling; runtime state is under .local/.
+/bin/claude-local
+/README-LOCAL-Start-Claude.md
+
 # PyPI configuration file
 .pypirc
 

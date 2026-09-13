@@ -73,6 +73,8 @@ and this repository aims to follow
 
 ### Changed
 
+- Ignore the generated local Claude launcher and start guide while preserving
+  them in the checkout, keeping local operator tooling out of publication.
 - Recorded the existing TheKnowledge checkout at `76202ee`, a three-commit
   rewind from `751a52a`. Preserved consuming-project overrides without
   performing an upstream upgrade or managed-file refresh.
