@@ -5,6 +5,25 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-09-13T14:00:49-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: read-only external-machine inspection confirmed a receipt-less
+  unfinished candidate with generated exact-version intent. Added explicit
+  legacy repair with bounded manifest validation, HOME confirmation, durable
+  retry receipts, old-candidate/context preservation, and fresh installation.
+  Retained stricter migration/uninstall/adoption boundaries and moved repair
+  HOME checks before ignore-rule replacement to preserve custom coverage.
+  Validation: all 595 tests passed in 60.57 seconds, including native Codex
+  smoke tests and disposable legacy-repair failure/retry fixtures. Black,
+  Ruff, compileall, explicit candidate entropy scans, sentinel/tripwire, and
+  diff checks passed. The known parent entropy-wrapper scope defect remains
+  tracked separately; parent changes were scanned directly.
+  Scope: no external project, remote utility, or protected context was
+  changed. The original npm failure cause remains unknown. Follow-up changes
+  are local and uncommitted on bugfix/legacy-first-install-repair.
+
+*
   Completed: 2026-09-13T13:34:52-07:00.
   Owner: Codex.
   Requestor: operator.

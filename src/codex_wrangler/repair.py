@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
+import re
+import stat
 from typing import Any, Dict, List, Optional, Tuple
 
 from .layout import (
@@ -20,6 +24,7 @@ from .slots import (
     observe_repair_runtime,
     read_slot_metadata,
     regular_contained_file,
+    validate_managed_root,
 )
 
 
@@ -30,6 +35,7 @@ class RepairPlan:
     codex_version: str
     ownership_evidence: Tuple[str, ...]
     version_evidence: Tuple[str, ...]
+    legacy_first_install: bool = False
 
     @property
     def version_source(self) -> str:
@@ -59,7 +65,110 @@ def package_manifest_looks_managed(path: Path) -> bool:
     return local_package_json_looks_managed(content)
 
 
-def prove_managed_install(layout: Layout) -> Tuple[str, ...]:
+def unique_manifest_object(pairs: List[Tuple[str, Any]]) -> Dict[str, Any]:
+    """Reject duplicate JSON fields instead of resolving ambiguous old intent."""
+
+    result: Dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate manifest fields are not accepted")
+        result[key] = value
+    return result
+
+
+def legacy_candidate_version(layout: Layout, candidate: Path) -> str:
+    """Read only narrowly generated intent, never the old executable payload."""
+
+    manifest = candidate / "package.json"
+    try:
+        if not regular_contained_file(layout.local_dir, manifest):
+            raise ValueError("manifest is missing, linked, or not a regular file")
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        with os.fdopen(os.open(manifest, flags), "rb") as handle:
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ValueError("manifest must be a single-link regular file")
+            raw = handle.read(4097)
+            if len(raw) > 4096:
+                raise ValueError("manifest exceeds its size bound")
+        payload = json.loads(raw, object_pairs_hook=unique_manifest_object)
+        dependencies = (
+            payload.get("devDependencies") if isinstance(payload, dict) else None
+        )
+        version = (
+            dependencies.get("@openai/codex")
+            if isinstance(dependencies, dict)
+            else None
+        )
+        if (
+            not isinstance(version, str)
+            or version != version.strip()
+            or not is_exact_version(version)
+            or payload.get("private") is not True
+            or payload
+            != {
+                "name": "codex-local-managed-install",
+                "private": True,
+                "devDependencies": {"@openai/codex": version},
+            }
+        ):
+            raise ValueError(
+                "manifest does not exactly match generated version-pinned intent"
+            )
+        return version
+    except (OSError, ValueError, RecursionError) as exc:
+        raise CodexWranglerError(
+            "Legacy first-install recovery refused candidate {}: {}. "
+            "Nothing was changed; preserve it for inspection.".format(candidate, exc)
+        ) from exc
+
+
+def legacy_candidate_versions(layout: Layout) -> List[Tuple[Path, str]]:
+    """Find bounded legacy repair evidence without authorizing ordinary adoption."""
+
+    validate_managed_root(layout)
+    if not layout.local_dir.is_dir():
+        return []
+    entries = []
+    try:
+        with os.scandir(layout.local_dir) as iterator:
+            for entry in iterator:
+                entries.append(Path(entry.path))
+                if len(entries) > 64:
+                    raise CodexWranglerError(
+                        "Legacy first-install recovery refuses more than 64 runtime entries; "
+                        "preserve the runtime for inspection."
+                    )
+        candidates = [
+            path
+            for path in entries
+            if re.fullmatch(r"\.candidate-[0-9a-f]{32}", path.name)
+        ]
+        if not candidates:
+            return []
+        for path in entries:
+            if (
+                path not in candidates
+                and path.name not in (".npm-cache", ".maintenance")
+            ) or not stat.S_ISDIR(path.lstat().st_mode):
+                raise CodexWranglerError(
+                    "Legacy first-install recovery refuses foreign or linked runtime "
+                    "entry {}; nothing was changed.".format(path)
+                )
+        return [
+            (candidate / "package.json", legacy_candidate_version(layout, candidate))
+            for candidate in sorted(candidates)
+        ]
+    except OSError as exc:
+        raise CodexWranglerError(
+            "Cannot inspect legacy first-install evidence: {}".format(exc)
+        ) from exc
+
+
+def prove_managed_install(
+    layout: Layout, *, allow_legacy_candidates: bool = False
+) -> Tuple[str, ...]:
     """Return strong ownership evidence or reject repair before mutation."""
 
     evidence: List[str] = []
@@ -86,11 +195,18 @@ def prove_managed_install(layout: Layout) -> Tuple[str, ...]:
         return tuple(evidence)
     if read_initial_install(layout) is not None:
         return (str(initial_install_path(layout)),)
+    # Migration also calls this proof helper. Candidate intent authorizes only
+    # explicit repair, never implicit relocation of a protected namespace.
+    if allow_legacy_candidates:
+        legacy_candidates = legacy_candidate_versions(layout)
+        if legacy_candidates:
+            return tuple(str(path) for path, _ in legacy_candidates)
     raise CodexWranglerError(
         "Cannot prove a codex-wrangler-managed install under {}. Repair did "
         "not remove or rewrite anything; expected valid managed metadata at "
         "{}, a valid managed package manifest at {}, a completed slot record, "
-        "or a valid first-install receipt. An explicit HOME choice cannot "
+        "a valid first-install receipt, or strictly validated legacy candidate "
+        "manifests. An explicit HOME choice cannot "
         "establish ownership. This may be foreign data or an older interrupted "
         "first install without recovery evidence; preserve it for inspection "
         "rather than automatically applying --force.".format(
@@ -259,6 +375,13 @@ def collect_exact_version_evidence(layout: Layout) -> List[Tuple[str, str]]:
                 "first-install receipt",
                 receipt["codex_version"],
             )
+        elif not package_manifest_looks_managed(layout.local_package_json_path):
+            for path, version in legacy_candidate_versions(layout):
+                append_exact_version(
+                    candidates,
+                    "legacy candidate {}".format(path.parent.name),
+                    version,
+                )
     return candidates
 
 
@@ -280,7 +403,7 @@ def build_repair_plan(layout: Layout) -> RepairPlan:
                 ", ".join(symbolic_targets)
             )
         )
-    ownership_evidence = prove_managed_install(layout)
+    ownership_evidence = prove_managed_install(layout, allow_legacy_candidates=True)
     candidates = collect_exact_version_evidence(layout)
     versions = sorted({version for _, version in candidates})
     if not versions:
@@ -307,4 +430,9 @@ def build_repair_plan(layout: Layout) -> RepairPlan:
         codex_version=selected_version,
         ownership_evidence=ownership_evidence,
         version_evidence=selected_sources,
+        legacy_first_install=all(
+            Path(source).name == "package.json"
+            and Path(source).parent.parent == layout.local_dir
+            for source in ownership_evidence
+        ),
     )

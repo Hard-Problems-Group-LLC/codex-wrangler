@@ -173,6 +173,13 @@ and this repository aims to follow
 
 ### Fixed
 
+- Recover receipt-less legacy first installs through explicit repair when
+  narrowly validated candidate manifests agree on one exact version. Require
+  HOME selection, preserve old candidates and context, reject unsafe or
+  ambiguous evidence, and retain stricter install/migration/uninstall rules.
+- Record recovered legacy intent before new candidate writes so interrupted
+  repairs remain retryable. Reject a missing repair HOME before rewriting
+  ignore rules, preserving unsupported custom-layout context coverage.
 - Fixed interrupted first installs becoming unrecognizable to both install
   and repair by recording durable, project/layout- and directory-identity-
   bound initialization intent before candidate/cache writes. Retry and

@@ -47,6 +47,11 @@ Requirements
    receipt paths may supply the original layout without admitting new repair
    path overrides. Check ownership and exact-version prerequisites before
    requesting missing HOME authority.
+   Receipt-less legacy first installs may use the strictly generated candidate
+   manifests and bounded namespace defined in `first_install_recovery.md`.
+   Accept this fallback only for explicit repair, require HOME selection,
+   preserve old candidates, and validate a fresh install at the one recovered
+   exact version. It must not extend migration or uninstall authority.
 4. Exact-version recovery
    Repair must infer the exact installed Codex version from surviving managed
    metadata, lockfile, package manifest, or installed Codex package manifest.

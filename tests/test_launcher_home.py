@@ -212,6 +212,62 @@ def test_failed_first_install_inspection_is_read_only(fresh_project):
     assert list(home.iterdir()) == []
 
 
+@pytest.mark.parametrize("failure", ["npm", "validation"])
+def test_receiptless_legacy_candidate_repair_preserves_state(fresh_project, failure):
+    """Rebuild known layouts but never guess an unrecorded custom HOME binding."""
+
+    project, home, env, args = fresh_project
+    failed = run_wrangler(project, {**env, "WRANGLER_TEST_FAILURE": failure}, args)
+    assert failed.returncode != 0
+    (project / ".codex-wrangler-initial-install.json").unlink()
+    original_ignores = (project / ".gitignore").read_bytes()
+    runtime = project / ".local/codex"
+    candidate = next(runtime.glob(".candidate-*"))
+    manifest = candidate / "package.json"
+    before = manifest.read_bytes()
+    identity = candidate.stat().st_ino
+    sentinel = home / "preserved-context"
+    sentinel.write_bytes(b"legacy fixture context\n")
+    home_identity = home.stat().st_ino
+
+    ordinary = run_wrangler(project, env, args)
+    assert ordinary.returncode == 1
+    assert "without exact managed ownership evidence" in ordinary.stderr
+    missing_choice = run_wrangler(project, env, ["--repair", str(project)])
+    assert missing_choice.returncode == 1
+    assert "Rerun with exactly one explicit" in missing_choice.stderr
+    choice = "--shared-home" if "--shared-home" in args else "--isolated-home"
+    if "--codex-home-dir" not in args:
+        interrupted_repair = run_wrangler(
+            project,
+            {**env, "WRANGLER_TEST_FAILURE": failure},
+            ["--repair", str(project), choice],
+        )
+        assert interrupted_repair.returncode != 0
+        receipt = project / ".codex-wrangler-initial-install.json"
+        assert receipt.is_file()
+        assert json.loads(receipt.read_text())["codex_version"] == VERSION
+    repaired = run_wrangler(project, env, ["--repair", str(project), choice])
+
+    assert "npm view" not in repaired.stderr
+    assert candidate.stat().st_ino == identity
+    assert manifest.read_bytes() == before
+    assert home.stat().st_ino == home_identity
+    assert sentinel.read_bytes() == b"legacy fixture context\n"
+    if "--codex-home-dir" in args:
+        assert repaired.returncode == 1
+        assert "will not recreate missing managed isolated HOME" in repaired.stderr
+        assert not (project / ".local/codex-home").exists()
+        assert not (runtime / ".codex-wrangler.json").exists()
+        assert (project / ".gitignore").read_bytes() == original_ignores
+        return
+    assert repaired.returncode == 0, repaired.stderr
+    assert not (project / ".codex-wrangler-initial-install.json").exists()
+    metadata = json.loads((runtime / ".codex-wrangler.json").read_text())
+    assert metadata["codex_version"] == VERSION
+    assert metadata["reasonable_permissions_enabled"] is False
+
+
 def test_repair_reports_missing_ownership_before_home_choice(tmp_path):
     """Unknown runtime data must not elicit an ineffective HOME-mode override."""
 

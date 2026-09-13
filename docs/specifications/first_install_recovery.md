@@ -37,6 +37,39 @@ selection does not establish ownership, and preserve all data. Old interrupted
 installs without receipts still require a separate, deliberate operator
 decision; do not infer their provenance from candidate names.
 
+## Legacy Candidate Recovery
+
+Explicit absolute-path repair may recover a receipt-less first install from
+the exact generated package manifest inside an unfinished unique candidate.
+This is a fallback only when root/slot/receipt authority is unavailable; it
+must not broaden ordinary install adoption, migration, or uninstall ownership.
+Receipt-less custom layouts without discoverable bindings remain unsupported.
+
+Require a real contained runtime with at most 64 immediate entries, limited
+to real `.npm-cache`, `.maintenance`, and `.candidate-<32 lowercase hex>`
+directories. Every candidate must contain a bounded, single-link, regular,
+non-following `package.json` with exactly the generated name, boolean private
+flag, and sole exact-version Codex devDependency, without scripts or extra
+fields. All candidate requested versions must agree. Do not infer HOME mode
+or permissions from those manifests: require an explicit shared/isolated HOME
+choice, preserve existing HOME, and default permissions to disabled.
+Validate the selected existing HOME before rewriting generated ignore rules;
+an unsupported custom layout must not lose context ignore coverage when its
+default HOME is absent.
+
+Revalidate the same evidence under the maintenance lock. Preserve old
+candidates and never execute or promote their unvalidated payloads. Before
+creating new candidate/cache data, publish a normal initialization receipt
+binding the recovered exact version, explicitly chosen HOME, and conservative
+permissions. Permit this nonempty-root transition only after revalidating the
+strict legacy manifests, while holding the maintenance lock. Then install
+and validate a fresh unique candidate at the recovered exact version.
+If repair itself fails, the new receipt permits safe retry even when the
+newest candidate has not acquired its own manifest yet.
+Reject names alone, foreign entries, links, malformed or incomplete manifests,
+and conflicting requests. A missing receipt alone is no longer sufficient to
+reject this narrow, verifiable historical state.
+
 Validation must cover first-install npm failure, timeout, interruption,
 validation failure, repeated permissions flags, exact-version retry/repair,
 receipt-write failure, directory replacement, unsafe receipt inputs, foreign

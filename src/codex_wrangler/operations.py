@@ -1583,8 +1583,10 @@ def install_like_operation(config: Config) -> int:
             require_observed_authority_unchanged(resolved_config)
             if resolved_config.operation == "install":
                 require_safe_install_adoption(resolved_config)
+            legacy_first_install = False
             if resolved_config.operation == "repair":
                 repair_plan = build_repair_plan(resolved_config.layout)
+                legacy_first_install = repair_plan.legacy_first_install
                 if resolved_config.codex_version != repair_plan.codex_version:
                     raise CodexWranglerError(
                         "Repair configuration selected {}, but locked target "
@@ -1619,15 +1621,17 @@ def install_like_operation(config: Config) -> int:
             else:
                 candidate_slot = inactive_slot_name(active)
             preflight_managed_supporting_files(resolved_config)
+            if resolved_config.operation == "repair":
+                # Reject a missing/unsafe HOME before replacing ignore rules;
+                # receipt-less custom layouts cannot supply a HOME binding.
+                ensure_isolated_home_ready(resolved_config, allow_create=False)
             # Publish the complete ignore boundary under the maintenance lock
             # before any candidate or pointer mutation. A stale launcher reads
             # the committed slot record, so a shared-to-isolated switch must
             # never become active before its canonical HOME is ignored.
             ensure_gitignore_block(resolved_config)
-            ensure_isolated_home_ready(
-                resolved_config,
-                allow_create=resolved_config.operation != "repair",
-            )
+            if resolved_config.operation != "repair":
+                ensure_isolated_home_ready(resolved_config)
             candidate_config = config_for_unique_candidate(resolved_config)
             eprint(
                 "[codex-wrangler] Preserving active runtime: {}".format(
@@ -1646,8 +1650,12 @@ def install_like_operation(config: Config) -> int:
                         resolved_config.layout.local_dir,
                         "first-install runtime",
                     )
+                    or legacy_first_install
                 ):
-                    write_initial_install(resolved_config)
+                    write_initial_install(
+                        resolved_config,
+                        allow_legacy_repair=legacy_first_install,
+                    )
                 prepare_candidate_install(resolved_config, candidate_config)
                 write_text_file(
                     candidate_config.layout.local_package_json_path,

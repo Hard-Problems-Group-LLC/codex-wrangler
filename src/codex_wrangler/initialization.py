@@ -140,11 +140,12 @@ def require_initial_install_selection(config: Config, receipt: dict[str, Any]) -
             )
 
 
-def write_initial_install(config: Config) -> None:
-    """Publish intent after empty-root preflight and before any candidate writes.
+def write_initial_install(config: Config, *, allow_legacy_repair: bool = False) -> None:
+    """Publish intent after ownership preflight and before any candidate writes.
 
     The caller holds MaintenanceLock and has already published ignore coverage
     and prepared the isolated HOME. No existing context is read or populated.
+    Nonempty roots require explicit legacy repair and freshly validated intent.
     """
 
     existing = read_initial_install(config.layout)
@@ -155,11 +156,23 @@ def write_initial_install(config: Config) -> None:
     runtime.mkdir(parents=True, exist_ok=True)
     directory_identity(config.project_root, runtime)
     if any(runtime.iterdir()):
-        raise CodexWranglerError(
-            "Cannot create first-install authority over nonempty runtime: {}".format(
-                runtime
+        if not allow_legacy_repair or config.operation != "repair":
+            raise CodexWranglerError(
+                "Cannot create first-install authority over nonempty runtime: {}".format(
+                    runtime
+                )
             )
-        )
+        # Explicit legacy repair can establish intent only from strictly
+        # generated manifests, never from candidate/cache filenames alone.
+        from .repair import legacy_candidate_versions
+
+        evidence = legacy_candidate_versions(config.layout)
+        if not evidence or {version for _, version in evidence} != {
+            config.codex_version
+        }:
+            raise CodexWranglerError(
+                "Legacy candidate intent no longer matches the selected repair version."
+            )
     if not is_exact_version(config.codex_version):
         raise CodexWranglerError("First-install receipt requires an exact version.")
     identities = {

@@ -331,10 +331,28 @@ still performs installation rather than publishing a launcher alone.
 
 The receipt is bound to this project and its actual directory identities,
 not just recognizable filenames. A populated directory from an older failed
-install may have no such receipt or other valid ownership evidence. In that
-case repair refuses before asking for HOME preferences: `--isolated-home`
-cannot establish ownership. Preserve and inspect the data before considering
-deliberate `--force` adoption; do not use it as an automatic recovery step.
+install may have no receipt. Explicit repair can recover a narrow historical
+case: the runtime contains only real cache/maintenance and unique-candidate
+directories, every candidate has the exact generated package manifest, and
+all requested exact versions agree. Confirm the original HOME mode:
+
+```bash
+codex-wrangler --repair /absolute/path/to/project-root --isolated-home
+# Use --shared-home instead only if that was the original mode.
+```
+
+Repair preserves those old candidates and builds a fresh one; it never runs
+or promotes their unvalidated payloads. After HOME confirmation, it records
+durable intent before new candidate writes so an interrupted repair remains
+retryable. Permissions default to disabled when
+no authoritative setting survives. This fallback does not authorize ordinary
+install, migration, or uninstall, and cannot discover receipt-less custom
+layout bindings. Foreign entries, unsafe files, ambiguous manifests, and
+conflicting versions stop recovery. When neither this evidence nor other
+valid ownership evidence exists, repair refuses before asking for HOME:
+`--isolated-home` cannot establish ownership by itself. Preserve and inspect
+the data before considering deliberate `--force` adoption; do not use it as
+an automatic recovery step.
 
 The operation first builds a transaction-unique candidate outside both fixed
 slots. Only after exact-version, platform-package, native-payload, and bounded

@@ -8,6 +8,16 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-09-13T14:00:49-07:00. Older unfinished candidates remained
+  unrecoverable after initialization-receipt support was added. Root cause:
+  repair did not consider their exact generated manifests. Resolution:
+  narrowly validate legacy candidate intent for explicit repair, require HOME
+  selection, record retryable intent before new writes, and rebuild a fresh
+  validated runtime without touching old context or executing old payloads.
+  Also validate HOME before replacing ignore rules. All 595 tests passed.
+  Details: `closed/legacy-first-install-candidate-repair.md`
+
+*
   Resolved: 2026-09-13T13:21:56-07:00. Failed first installs could block their
   own retry and repair. Root cause: candidate/cache writes preceded durable
   ownership evidence, and repair asked for HOME before checking ownership.
