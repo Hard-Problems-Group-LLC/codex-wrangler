@@ -12,6 +12,7 @@ from .layout import (
     read_json_file,
 )
 from .models import CodexWranglerError, Layout
+from .initialization import initial_install_path, read_initial_install
 from .releases import is_exact_version
 from .rendering import local_package_json_looks_managed
 from .slots import (
@@ -83,10 +84,16 @@ def prove_managed_install(layout: Layout) -> Tuple[str, ...]:
         evidence.append(str(layout.local_package_json_path))
     if evidence:
         return tuple(evidence)
+    if read_initial_install(layout) is not None:
+        return (str(initial_install_path(layout)),)
     raise CodexWranglerError(
         "Cannot prove a codex-wrangler-managed install under {}. Repair did "
         "not remove or rewrite anything; expected valid managed metadata at "
-        "{} or a valid managed package manifest at {}.".format(
+        "{}, a valid managed package manifest at {}, a completed slot record, "
+        "or a valid first-install receipt. An explicit HOME choice cannot "
+        "establish ownership. This may be foreign data or an older interrupted "
+        "first install without recovery evidence; preserve it for inspection "
+        "rather than automatically applying --force.".format(
             layout.project_root,
             layout.metadata_path,
             layout.local_package_json_path,
@@ -241,6 +248,16 @@ def collect_exact_version_evidence(layout: Layout) -> List[Tuple[str, str]]:
                 candidates,
                 "completed slot {} record".format(slot_name),
                 slot_metadata.get("codex_version"),
+            )
+    if not metadata_looks_managed(metadata, layout) and not any(
+        read_slot_metadata(layout, name) is not None for name in ("a", "b")
+    ):
+        receipt = read_initial_install(layout)
+        if receipt is not None:
+            append_exact_version(
+                candidates,
+                "first-install receipt",
+                receipt["codex_version"],
             )
     return candidates
 

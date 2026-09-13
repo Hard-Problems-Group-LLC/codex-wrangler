@@ -8,6 +8,27 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-09-13T13:21:56-07:00. Failed first installs could block their
+  own retry and repair. Root cause: candidate/cache writes preceded durable
+  ownership evidence, and repair asked for HOME before checking ownership.
+  Resolution: publish narrowly bound initialization intent before npm, retain
+  exact retry/repair choices and context, recheck adoption under lock, and
+  provide prerequisite-first diagnostics with complete commands. All 557
+  tests passed, including disposable interrupted-first-install transactions.
+  Old unrecognized debris remains fail-closed. Details:
+  `closed/interrupted-first-install-ownership-gap.md`
+
+*
+  Resolved: 2026-09-13T12:41:30-07:00. A clean install completed but its
+  generated launcher failed because CODEX_HOME did not exist. Root cause:
+  only the isolated HOME parent was provisioned, while candidate checks used
+  a separately initialized maintenance HOME. Resolution: initialize only the
+  missing .codex child during normal launch, preserve context and permissions,
+  refuse missing HOME and unsafe destinations, and cover real installation
+  plus offline native CLI startup. Details:
+  `closed/fresh-launch-missing-codex-home.md`
+
+*
   Resolved: 2026-09-10T05:04:01-07:00. Recursive initialize-only submodule
   traversal could follow a replaced final or ancestor path link and execute Git
   in an external repository. Root cause: lexical path syntax and `is_dir()`

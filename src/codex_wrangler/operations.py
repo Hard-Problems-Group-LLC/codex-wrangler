@@ -8,6 +8,7 @@ import json
 import os
 import platform
 from pathlib import Path
+import shlex
 import stat
 import sys
 import tempfile
@@ -58,6 +59,13 @@ from .migration import (
     remove_compatibility_links,
 )
 from .models import CodexWranglerError, Config, SelfTestResult
+from .initialization import (
+    clear_initial_install,
+    initial_install_path,
+    read_initial_install,
+    require_initial_install_selection,
+    write_initial_install,
+)
 from .native_payload import validate_native_payload
 from .repair import build_repair_plan
 from .releases import (
@@ -359,6 +367,11 @@ def require_safe_install_adoption(config: Config) -> None:
             )
         return
 
+    receipt = read_initial_install(config.layout)
+    if receipt is not None:
+        require_initial_install_selection(config, receipt)
+        return
+
     occupied = []
     if local_has_entries:
         occupied.append(str(config.layout.local_dir))
@@ -368,9 +381,13 @@ def require_safe_install_adoption(config: Config) -> None:
         raise CodexWranglerError(
             "Refusing install because pre-existing project-local path(s) "
             "contain data without exact managed ownership evidence: {}. "
-            "Preserve those paths and use standalone --repair when applicable, "
-            "or pass --force only to adopt them deliberately.".format(
-                ", ".join(occupied)
+            "Preserve those paths. Inspect with codex-wrangler --inspect {}. "
+            "If recoverable ownership evidence exists, use codex-wrangler "
+            "--repair {}. Older interrupted first installs may lack that "
+            "evidence; --force is deliberate adoption, not automatic recovery.".format(
+                ", ".join(occupied),
+                shlex.quote(str(config.project_root)),
+                shlex.quote(str(config.project_root)),
             )
         )
 
@@ -1398,6 +1415,8 @@ def publish_projection_state(config: Config) -> None:
         slot_record_committed = not config.dry_run
     try:
         write_managed_supporting_files(config)
+        if not config.dry_run:
+            clear_initial_install(config.layout)
     except KeyboardInterrupt as exc:
         if slot_record_committed:
             raise PointerCommittedInterrupt(
@@ -1446,7 +1465,7 @@ def install_like_operation(config: Config) -> int:
         try:
             if config.operation == "upgrade":
                 resolved_config = resolve_upgrade_version(config)
-            elif config.operation == "repair":
+            elif config.operation == "repair" or config.initial_install:
                 resolved_config = config
             else:
                 with npm_lookup_environment(config) as lookup_env:
@@ -1562,6 +1581,8 @@ def install_like_operation(config: Config) -> int:
     else:
         with MaintenanceLock(resolved_config.layout):
             require_observed_authority_unchanged(resolved_config)
+            if resolved_config.operation == "install":
+                require_safe_install_adoption(resolved_config)
             if resolved_config.operation == "repair":
                 repair_plan = build_repair_plan(resolved_config.layout)
                 if resolved_config.codex_version != repair_plan.codex_version:
@@ -1619,6 +1640,14 @@ def install_like_operation(config: Config) -> int:
             )
             slot_swap = None
             try:
+                if not managed_install_home_modes(resolved_config) and (
+                    read_initial_install(resolved_config.layout) is not None
+                    or not directory_has_entries(
+                        resolved_config.layout.local_dir,
+                        "first-install runtime",
+                    )
+                ):
+                    write_initial_install(resolved_config)
                 prepare_candidate_install(resolved_config, candidate_config)
                 write_text_file(
                     candidate_config.layout.local_package_json_path,
@@ -1787,6 +1816,7 @@ def install_like_operation(config: Config) -> int:
             summary_config = published_config
             try:
                 publish_installed_state(published_config, fixed_candidate_config)
+                clear_initial_install(published_config.layout)
             except KeyboardInterrupt as exc:
                 raise PointerCommittedInterrupt(
                     "Interrupted while refreshing generated support files after "
@@ -2160,10 +2190,12 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
                 item["path"] for item in local_native_payloads
             ],
             "metadata": str(config.layout.metadata_path),
+            "initial_install_receipt": str(initial_install_path(config.layout)),
             "gitignore": str(config.layout.gitignore_path),
             "active_runtime_prefix": str(runtime_config.layout.local_dir),
         },
         "state": {
+            "initial_install_pending": config.initial_install,
             "git_repository": (config.project_root / ".git").exists(),
             "local_dir_exists": config.layout.local_dir.exists(),
             "local_package_json_exists": (
@@ -2245,6 +2277,11 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
     state = report["state"]
     warnings = report["warnings"]
     issues = report["issues"]
+    if config.initial_install:
+        issues.append(
+            "First installation is unfinished; repeat the original install "
+            "command to retry its recorded exact version."
+        )
 
     if config.layout_migration is not None:
         warnings.append(migration_observation_message(config.layout_migration))
@@ -2408,6 +2445,8 @@ def uninstall_locked_operation(config: Config) -> int:
     compatibility_links = compatibility_links_for_uninstall(config)
     if not config.force:
         require_uninstall_ownership(config)
+    if not config.dry_run:
+        clear_initial_install(config.layout)
 
     remove_file_if_managed(
         config.layout.launcher_path,

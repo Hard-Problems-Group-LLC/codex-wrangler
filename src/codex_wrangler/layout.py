@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Tuple
 from .constants import (
     DEFAULT_HOME_DIR,
     DEFAULT_LOCAL_DIR,
+    INITIAL_INSTALL_FILENAME,
     LEGACY_HOME_DIR,
     LEGACY_LOCAL_DIR,
     MAINTENANCE_LOCK_FILENAME,
@@ -248,6 +249,7 @@ def build_layout(
             ("--readme-local", readme_path),
             ("repository .gitignore", gitignore_path),
             ("stable maintenance lock", maintenance_lock_path),
+            ("first-install receipt", project_root / INITIAL_INSTALL_FILENAME),
         )
     )
     if local_dir == local_state_root:
@@ -627,7 +629,21 @@ def read_existing_state(layout: Layout) -> ExistingState:
     if pinned_codex_version is None:
         pinned_codex_version = requested_codex_selector
 
+    initial_install_receipt = None
+    if metadata is None and shared_home is None:
+        from .initialization import read_initial_install
+
+        initial_install_receipt = read_initial_install(layout)
+        if initial_install_receipt is not None:
+            requested_codex_selector = initial_install_receipt["codex_version"]
+            pinned_codex_version = requested_codex_selector
+            shared_home = initial_install_receipt["shared_home"]
+            reasonable_permissions_enabled = initial_install_receipt[
+                "reasonable_permissions_enabled"
+            ]
+
     return ExistingState(
+        initial_install_receipt=initial_install_receipt,
         metadata=metadata,
         requested_codex_selector=(
             requested_codex_selector

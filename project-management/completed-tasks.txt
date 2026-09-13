@@ -5,6 +5,45 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-09-13T13:21:56-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: evaluated the external failure report and repaired the confirmed
+  first-install retry gap with durable, narrowly bound initialization
+  receipts. Retry and repair preserve exact version, HOME, permissions, and
+  context, including custom layouts. Corrected ownership-before-HOME
+  diagnostics, permission-only retry classification, post-lookup locked
+  adoption, and dry-run/receipt lifecycle behavior.
+  Validation: all 557 tests passed in 55.54 seconds, including interrupted
+  first-install CLI transactions and two actual Codex 0.154.0 offline startup
+  smoke tests with disposable homes. Targeted Black, Ruff, compileall, diff
+  checks, explicit 24-file entropy scan, and sentinel/tripwire checks passed.
+  Parent changes were scanned directly because the existing entropy-wrapper
+  scope defect remains tracked separately.
+  Scope: no client checkout or remote machine was accessed; unknown older
+  debris still requires deliberate ownership evaluation. The remote cause
+  remains unverified. Changes are effective in the local editable utility
+  checkout and remain uncommitted for operator-controlled publication.
+
+*
+  Completed: 2026-09-13T12:43:46-07:00.
+  Owner: Codex.
+  Requestor: operator.
+  Outcome: fixed fresh-install launcher startup by creating only the selected
+  HOME's missing .codex child with private permissions. Existing context and
+  directory permissions are preserved; absent HOME and unsafe isolated
+  context paths fail closed. Added real install-to-launch fixtures covering
+  isolated/custom/shared modes and offline native CLI smoke coverage.
+  Validation: all 507 tests passed, including actual Codex 0.154.0 offline
+  startup with disposable homes; targeted Black, Ruff, compileall, diff check,
+  ten-file explicit entropy scan, and TheKnowledge sentinel/tripwire checks
+  passed. The existing entropy-wrapper scope bug remains open, so parent
+  changes were scanned directly rather than relying on submodule coverage.
+  Scope: no client checkout, existing Codex context, or user launcher was
+  modified. Read-only inspection confirms the user's utility command already
+  imports this editable checkout, so the source fix is effective locally.
+
+*
   Completed: 2026-09-10T05:04:01-07:00.
   Owner: Codex.
   Requestor: operator.

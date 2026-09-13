@@ -1,3 +1,5 @@
+"""Validate generated launchers and reports with disposable operator state."""
+
 import json
 import os
 import shutil
@@ -26,6 +28,15 @@ from codex_wrangler.rendering import (
     build_metadata,
 )
 from codex_wrangler.slots import read_slot_metadata, write_slot_metadata
+
+
+@pytest.fixture(autouse=True)
+def disposable_operator_home(tmp_path, monkeypatch):
+    """Keep shared-mode launchers away from the test runner's real context."""
+
+    home = tmp_path / "caller-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
 
 
 def write_launcher_slot_metadata(config, slot_name):
@@ -74,6 +85,7 @@ def run_launcher_and_capture_args(config, caller_args):
     captured_args_path = config.project_root / "captured-args.txt"
     local_bin_dir = config.layout.local_node_modules_dir / ".bin"
     tools_dir.mkdir()
+    config.layout.codex_home_dir.mkdir(parents=True, exist_ok=True)
     local_bin_dir.mkdir(parents=True)
     config.layout.launcher_path.parent.mkdir(parents=True, exist_ok=True)
     config.layout.launcher_path.write_text(
@@ -232,6 +244,7 @@ def test_launcher_executes_the_snapshotted_active_slot(tmp_path, config_factory)
     tools_dir = tmp_path / "tools"
     active_bin = config.layout.local_dir / "slots" / "a" / "node_modules" / ".bin"
     active_bin.mkdir(parents=True)
+    config.layout.codex_home_dir.mkdir(parents=True)
     tools_dir.mkdir()
     config.layout.launcher_path.parent.mkdir(parents=True)
     config.layout.launcher_path.write_text(
@@ -403,6 +416,7 @@ def test_launcher_health_check_controls_command_forwarding(
     forwarded_path = config.project_root / "forwarded.txt"
     local_bin_dir = config.layout.local_node_modules_dir / ".bin"
     tools_dir.mkdir()
+    config.layout.codex_home_dir.mkdir(parents=True)
     local_bin_dir.mkdir(parents=True)
     config.layout.launcher_path.parent.mkdir(parents=True, exist_ok=True)
     config.layout.launcher_path.write_text(
@@ -633,6 +647,7 @@ def test_launcher_requires_active_slot_health_version_to_match_record(
     )
     tools_dir = tmp_path / "tools"
     tools_dir.mkdir()
+    config.layout.codex_home_dir.mkdir(parents=True)
     install_node_passthrough(tools_dir)
     forwarded = tmp_path / "forwarded"
     slot_bin = config.layout.local_dir / "slots" / "a" / "node_modules" / ".bin"

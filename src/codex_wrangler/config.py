@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+import shlex
 from typing import Optional, Sequence, Tuple
 
 from .constants import (
@@ -27,6 +29,7 @@ from .migration import (
     select_default_state_layout,
 )
 from .models import CodexWranglerError, Config, ExistingState
+from .initialization import read_initial_install
 from .repair import build_repair_plan
 from .releases import infer_codex_channel
 from .slots import discover_active_runtime
@@ -519,6 +522,8 @@ def is_reasonable_permissions_reconfigure(
 
     if operation != "install":
         return False
+    if existing.initial_install_receipt is not None:
+        return False
     if getattr(args, "repair_install", False):
         return False
     if not (args.set_reasonable_permissions or args.clear_reasonable_permissions):
@@ -547,6 +552,7 @@ def managed_authority_token(
         existing.available_versions_updated_at,
         active_slot,
         active_pointer_kind,
+        json.dumps(existing.initial_install_receipt, sort_keys=True),
     )
 
 
@@ -588,6 +594,19 @@ def determine_target_selection(
 
     requested_version = args.requested_version
     if operation == "install":
+        if existing.initial_install_receipt is not None:
+            version = existing.initial_install_receipt["codex_version"]
+            channel = infer_codex_channel(version)
+            if requested_version not in (
+                None,
+                "latest",
+                version,
+            ) or args.channel not in (None, channel):
+                raise CodexWranglerError(
+                    "Unfinished first install selected {}; finish that version "
+                    "before changing channels or versions.".format(version)
+                )
+            return version, channel, version, "unfinished first-install receipt"
         channel = args.channel
         if requested_version is None:
             requested_version = "latest"
@@ -644,6 +663,23 @@ def config_from_args(args: argparse.Namespace) -> Config:
         readme_raw=args.readme_local or DEFAULT_README_FILENAME,
         allow_default_migration_staging=uses_default_layout,
     )
+    if operation == "repair":
+        # Repair takes only an absolute project root. A validated receipt can
+        # supply custom paths without accepting arbitrary new layout overrides.
+        receipt = read_initial_install(canonical_layout, discover_layout=True)
+        if receipt is not None:
+            paths = receipt["paths"]
+            canonical_layout = build_layout(
+                project_root,
+                paths["local_dir"],
+                paths["codex_home_dir"],
+                paths["launcher"],
+                paths["readme_local"],
+            )
+            uses_default_layout = (
+                paths["local_dir"] == DEFAULT_LOCAL_DIR
+                and paths["codex_home_dir"] == DEFAULT_HOME_DIR
+            )
 
     legacy_layout = None
     state_layout = canonical_layout
@@ -679,13 +715,18 @@ def config_from_args(args: argparse.Namespace) -> Config:
             # a crash between the runtime and isolated-HOME exchanges.
             existing.shared_home = pending_legacy_home_mode
             pending_legacy_home_mode_discovered = True
+    repair_plan = None
     if operation == "repair":
+        # Establish actionable prerequisites before requesting HOME authority.
+        repair_plan = build_repair_plan(state_layout)
         if existing.shared_home is None and args.shared_home is None:
             raise CodexWranglerError(
                 "Repair cannot recover whether the damaged install used shared "
                 "or isolated HOME from surviving authority. Rerun with exactly "
                 "one explicit --shared-home or --isolated-home choice after "
-                "confirming where its history belongs; nothing was changed."
+                "confirming where its history belongs; nothing was changed. "
+                "Example: codex-wrangler --repair {} --isolated-home (only if "
+                "that was its original mode).".format(shlex.quote(str(project_root)))
             )
         if (
             existing.shared_home is not None
@@ -738,7 +779,7 @@ def config_from_args(args: argparse.Namespace) -> Config:
     layout = canonical_layout if migration_enabled else state_layout
 
     if operation == "repair":
-        repair_plan = build_repair_plan(state_layout)
+        assert repair_plan is not None
         codex_selector = repair_plan.codex_version
         codex_channel = infer_codex_channel(repair_plan.codex_version)
         codex_version = repair_plan.codex_version
@@ -771,4 +812,5 @@ def config_from_args(args: argparse.Namespace) -> Config:
         active_slot=active_slot,
         active_pointer_kind=active_pointer_kind,
         observed_authority_token=observed_authority_token,
+        initial_install=existing.initial_install_receipt is not None,
     )

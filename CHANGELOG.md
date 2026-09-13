@@ -168,6 +168,20 @@ and this repository aims to follow
 
 ### Fixed
 
+- Fixed interrupted first installs becoming unrecognizable to both install
+  and repair by recording durable, project/layout- and directory-identity-
+  bound initialization intent before candidate/cache writes. Retry and
+  repair preserve the exact version, HOME, permissions, and existing context;
+  unknown older debris remains fail-closed.
+- Check repair ownership and version prerequisites before asking for HOME
+  preferences, and include complete absolute-path diagnostic examples.
+- Recheck first-install adoption under lock after registry lookup, keep
+  repeated permission flags on the installation path while initialization is
+  pending, and preserve recovery receipts during dry runs.
+- Fixed first launch after a clean install by creating the selected HOME's
+  missing `.codex` child with private permissions before exporting it to
+  Codex subprocesses. Generated launchers preserve existing context, refuse
+  to recreate a missing HOME, and reject linked isolated context paths.
 - Bound stage-two and low-level user-install venv, pip, hook, and verification
   subprocesses to the selected user's `HOME`, persistent XDG homes, and pip
   cache, preventing an explicit `--user-home` install from writing cache data

@@ -321,6 +321,21 @@ choice, and that choice cannot override surviving evidence. Missing permission
 evidence defaults to disabled. The running utility may come from another
 checkout or installation; it does not invoke the damaged target launcher.
 
+Fresh installs now write an ignored first-install receipt before populating
+the candidate or npm cache. If that attempt fails, repeat the original
+install command or use absolute-path `--repair`. The receipt preserves the
+exact resolved version, HOME mode, permission defaults, and verified layout;
+repair can recover custom paths from it. Retrying permission-default flags
+still performs installation rather than publishing a launcher alone.
+`--inspect` reports `initial_install_pending` until completed state exists.
+
+The receipt is bound to this project and its actual directory identities,
+not just recognizable filenames. A populated directory from an older failed
+install may have no such receipt or other valid ownership evidence. In that
+case repair refuses before asking for HOME preferences: `--isolated-home`
+cannot establish ownership. Preserve and inspect the data before considering
+deliberate `--force` adoption; do not use it as an automatic recovery step.
+
 The operation first builds a transaction-unique candidate outside both fixed
 slots. Only after exact-version, platform-package, native-payload, and bounded
 `codex --version` validation does it reversibly rename the candidate into the

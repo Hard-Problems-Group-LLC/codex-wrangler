@@ -41,6 +41,12 @@ Requirements
    stale, or layout-mismatched metadata alone must not authorize repair. If no
    source can be validated, repair must stop without cleanup or generated-file
    writes.
+   A pending first install may instead use the bounded, project/layout- and
+   directory-identity-bound receipt defined in `first_install_recovery.md`.
+   This proves unfinished initialization, not a working runtime. Validated
+   receipt paths may supply the original layout without admitting new repair
+   path overrides. Check ownership and exact-version prerequisites before
+   requesting missing HOME authority.
 4. Exact-version recovery
    Repair must infer the exact installed Codex version from surviving managed
    metadata, lockfile, package manifest, or installed Codex package manifest.
@@ -62,6 +68,9 @@ Requirements
    `--shared-home` or `--isolated-home` choice. Conflicting explicit and
    surviving choices must stop repair. If reasonable-permissions evidence is
    absent, repair must conservatively disable that launcher default.
+   When no completed root/slot authority exists, include the first-install
+   receipt's exact version and preserved HOME/permission choices. Conflicting
+   package evidence must not silently override its recorded version.
 5. Automatic bounded cleanup
    A proven repair must reinstall the inferred exact version into a unique
    candidate outside both fixed slots, validate it, and only then reversibly

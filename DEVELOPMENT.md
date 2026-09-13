@@ -230,6 +230,20 @@ The tests intentionally stay light on external side effects while covering the
 version/channel logic, managed content generation, conservative uninstall
 behavior, and inspection/self-test failure modes.
 
+First-launch tests execute the real installer and generated launcher using
+deterministic npm/Codex fixtures. To also check a locally available native
+Codex binary, explicitly opt in:
+
+```bash
+CODEX_WRANGLER_SMOKE_BINARY=/absolute/path/to/native/codex \
+  .venv/bin/python -m pytest tests/test_launcher_home.py
+```
+
+The optional tests copy that executable into disposable test directories and
+run offline `login status` with empty isolated and shared HOME fixtures. They
+expect `Not logged in`, not a missing `CODEX_HOME` error. They do not install
+packages, authenticate, or use existing project context.
+
 ## Packaging Notes
 
 This project uses a conventional `src/` layout and a `pyproject.toml`

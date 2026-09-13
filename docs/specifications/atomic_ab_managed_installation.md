@@ -15,6 +15,10 @@ promotion, generated support files, subprocess interruption, and repair.
 Project-local Codex context under `.local/codex-home/` and `.codex/` is never part of
 an install slot.
 
+First installations also follow `first_install_recovery.md`: publish bounded
+initialization intent before candidate/cache writes, without claiming a
+completed runtime, so a failed first transaction remains safely retryable.
+
 ## Required Behavior
 
 1. **Complete A/B prefixes**
@@ -247,6 +251,18 @@ The generated launcher must reject a symbolic-link managed local root, an
 invalid or incomplete selected slot, and any Codex shim whose canonical target
 escapes the selected prefix. Normal npm-created in-prefix shim links remain
 valid.
+
+At normal launch, initialize the selected HOME's missing `.codex` directory
+before invoking Codex, including its health check. An explicit `CODEX_HOME`
+requires an existing directory even when `--version` happens to succeed
+without one. Create only that single child, with mode 0700; never recreate a
+missing HOME or change existing context contents or permissions. Isolated
+mode must reject a symbolic-link `.codex`, including a dangling link, and
+both modes must reject non-directory destinations. Concurrent first launches
+may reuse a directory created by the other launcher. Shared mode retains its
+existing HOME selection and support for an existing `.codex` directory link.
+This is normal runtime initialization, not install, repair, migration, or
+read-only inspection; their context-preservation contracts remain unchanged.
 
 ## Two-Slot Process-Lifetime Limit
 

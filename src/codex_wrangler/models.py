@@ -72,6 +72,7 @@ class Config:
     active_slot: Optional[str] = None
     active_pointer_kind: Optional[str] = None
     observed_authority_token: Optional[Tuple[Any, ...]] = None
+    initial_install: bool = False
 
 
 @dataclass
@@ -86,6 +87,7 @@ class ExistingState:
     available_versions: Dict[str, Optional[str]] = field(default_factory=dict)
     available_versions_updated_at: Optional[str] = None
     shared_home: Optional[bool] = None
+    initial_install_receipt: Optional[Dict[str, Any]] = None
 
 
 @dataclass
