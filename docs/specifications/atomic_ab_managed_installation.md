@@ -264,6 +264,12 @@ existing HOME selection and support for an existing `.codex` directory link.
 This is normal runtime initialization, not install, repair, migration, or
 read-only inspection; their context-preservation contracts remain unchanged.
 
+Exercise this contract through completed A/B slot launchers as well as the
+fresh-install transaction fixtures. Preserve existing state, reject malformed
+destinations and lost outer HOME, and test foreign inherited CODEX_HOME.
+When a local Codex runtime is available, verify real offline first startup
+in disposable homes rather than relying only on `--version`.
+
 ## Two-Slot Process-Lifetime Limit
 
 The pointer and directory transaction protects launches and maintenance, not

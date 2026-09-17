@@ -39,6 +39,14 @@ aligned under `closed/`.
   `closed/fresh-launch-missing-codex-home.md`
 
 *
+  Resolved locally: 2026-09-11T11:38:47-07:00. Fresh managed startup failed
+  because explicit CODEX_HOME selected an absent directory. The local fix
+  deferred initialization to Codex; integration on 2026-09-17 adopted the
+  stricter upstream private-child initialization above and retained the local
+  A/B regression coverage. Original diagnosis and decision:
+  `closed/first-start-missing-codex-home.md`.
+
+*
   Resolved: 2026-09-10T05:04:01-07:00. Recursive initialize-only submodule
   traversal could follow a replaced final or ancestor path link and execute Git
   in an external repository. Root cause: lexical path syntax and `is_dir()`

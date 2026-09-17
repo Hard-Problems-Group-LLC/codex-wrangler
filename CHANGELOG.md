@@ -10,6 +10,9 @@ and this repository aims to follow
 
 ### Added
 
+- Integrated local A/B first-start regression coverage with upstream's private
+  context initialization and interrupted-install recovery, retaining offline
+  native startup probes and the original local diagnosis.
 - Added canonical default roots at `.local/codex` and
   `.local/codex-home`, with managed legacy-layout discovery, a
   migration-capable bridge launcher, Linux atomic directory/link exchange,
@@ -73,6 +76,8 @@ and this repository aims to follow
 
 ### Changed
 
+- Refreshed managed ignore coverage for first-install receipts and their
+  temporary files.
 - Ignore the generated local Claude launcher and start guide while preserving
   them in the checkout, keeping local operator tooling out of publication.
 - Recorded the existing TheKnowledge checkout at `76202ee`, a three-commit

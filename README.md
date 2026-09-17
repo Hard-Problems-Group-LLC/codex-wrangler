@@ -538,6 +538,12 @@ their config. `codex-wrangler` intentionally does not mutate the target
 project's own Python or Node configuration files unless some separate
 bootstrap feature is added explicitly.
 
+On first startup, the launcher creates only the selected HOME's missing
+`.codex` child with mode 0700 and explicitly selects it with `CODEX_HOME`.
+Existing context and permissions are preserved. Missing outer HOME,
+non-directory destinations, and symbolic links in isolated mode are refused;
+an inherited context path from another project is never used.
+
 Package installation, audit, and each candidate health check use a fresh
 mode-0700 workspace under `.local/codex/.maintenance/.run-*`, outside the
 persistent npm cache. Registry queries instead use separate temporary

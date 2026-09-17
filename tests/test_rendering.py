@@ -2,6 +2,8 @@
 
 import json
 import os
+from pathlib import Path
+import shlex
 import shutil
 import subprocess
 
@@ -1410,6 +1412,156 @@ def test_stale_launcher_derives_home_mode_from_active_slot_record(
         str(expected_home),
         str(expected_home / ".codex"),
     ]
+
+
+def write_startup_probe_launcher(config, executable_text):
+    """Use a completed slot with an external-CLI probe as its executable."""
+
+    write_launcher_slot_metadata(config, "a")
+    executable = config.layout.local_dir / "slots/a/node_modules/.bin/codex"
+    executable.parent.mkdir(parents=True)
+    executable.write_text(executable_text, encoding="utf-8")
+    executable.chmod(0o755)
+    (config.layout.local_dir / "active").symlink_to("slots/a")
+    config.layout.launcher_path.parent.mkdir(parents=True)
+    config.layout.launcher_path.write_text(
+        build_launcher_content(config), encoding="utf-8"
+    )
+    config.layout.launcher_path.chmod(0o755)
+
+
+@pytest.mark.parametrize("shared_home", [False, True])
+@pytest.mark.parametrize(
+    "state", ["absent", "existing", "file", "dangling", "lost-home"]
+)
+def test_launcher_first_start_home_contract(
+    tmp_path, config_factory, shared_home, state
+):
+    """Check the integrated A/B contract without weakening upstream HOME guards."""
+
+    config = config_factory(
+        tmp_path,
+        codex_version="0.30.0",
+        codex_selector="0.30.0",
+        shared_home=shared_home,
+    )
+    selected_home = (
+        tmp_path / "operator-home" if shared_home else config.layout.codex_home_dir
+    )
+    if state != "lost-home":
+        selected_home.mkdir(parents=True)
+    context = selected_home / ".codex"
+    sentinel = context / "preserved-context"
+    if state == "existing":
+        context.mkdir()
+        sentinel.write_text("preserve me\n", encoding="utf-8")
+        prior_inode = sentinel.stat().st_ino
+    elif state == "file":
+        context.write_text("not a directory\n", encoding="utf-8")
+    elif state == "dangling":
+        context.symlink_to(tmp_path / "absent-link-target")
+    write_startup_probe_launcher(
+        config,
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        'if [[ "${1:-}" == "--version" ]]; then echo "codex-cli 0.30.0"; exit 0; fi\n'
+        "# Match Codex: --version bypasses the startup HOME requirement.\n"
+        'if [[ "${CODEX_HOME+x}" == x ]]; then\n'
+        '  [[ -d "$CODEX_HOME" ]] || exit 23\n'
+        '  printf "explicit\\n"\n'
+        "else\n"
+        '  printf "default\\n"\n'
+        "fi\n"
+        'mkdir -p "${CODEX_HOME:-$HOME/.codex}"\n'
+        'printf "%s\\n" "${CODEX_HOME:-$HOME/.codex}"\n',
+    )
+    foreign_home = tmp_path / "foreign-context"
+    probe_env = dict(os.environ, HOME=str(selected_home), CODEX_HOME=str(foreign_home))
+    result = subprocess.run(
+        [str(config.layout.launcher_path), "probe"],
+        env=probe_env,
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert not foreign_home.exists()
+    if state in ("absent", "existing"):
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [
+            "explicit",
+            str(context),
+        ]
+        assert context.is_dir()
+        if state == "existing":
+            assert sentinel.read_text(encoding="utf-8") == "preserve me\n"
+            assert sentinel.stat().st_ino == prior_inode
+    else:
+        assert result.returncode == 1, result.stderr
+        assert not (tmp_path / "absent-link-target").exists()
+        if state == "lost-home":
+            assert not selected_home.exists()
+        elif state == "file":
+            assert context.read_text(encoding="utf-8") == "not a directory\n"
+        else:
+            assert context.is_symlink()
+
+
+@pytest.mark.parametrize("shared_home", [False, True])
+def test_first_start_with_installed_codex(tmp_path, config_factory, shared_home):
+    """Exercise actual startup when the optional local Codex runtime is available."""
+
+    binary = (
+        Path(__file__).resolve().parents[1]
+        / ".local/codex/active/node_modules/.bin/codex"
+    )
+    if not binary.is_file() or shutil.which("node") is None:
+        pytest.skip("real startup smoke requires a local Codex runtime and Node")
+    version = (
+        subprocess.run(
+            [str(binary), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        .stdout.strip()
+        .removeprefix("codex-cli ")
+    )
+    config = config_factory(
+        tmp_path,
+        codex_version=version,
+        codex_selector=version,
+        shared_home=shared_home,
+    )
+    write_startup_probe_launcher(
+        config,
+        '#!/usr/bin/env bash\nexec {} "$@"\n'.format(shlex.quote(str(binary))),
+    )
+    selected_home = (
+        tmp_path / "operator-home" if shared_home else config.layout.codex_home_dir
+    )
+    selected_home.mkdir(parents=True)
+    probe_env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("CODEX_", "XDG_"))
+    }
+    probe_env["HOME"] = str(selected_home)
+    probe_env["CODEX_HOME"] = str(tmp_path / "foreign-context")
+    result = subprocess.run(
+        [str(config.layout.launcher_path), "debug", "prompt-input", "startup probe"],
+        cwd=tmp_path,
+        env=probe_env,
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert isinstance(json.loads(result.stdout), list)
+    assert (selected_home / ".codex").is_dir()
+    assert not (tmp_path / "foreign-context").exists()
 
 
 @pytest.mark.parametrize("linked_component", ["ancestor", "final"])

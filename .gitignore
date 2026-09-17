@@ -220,6 +220,8 @@ __marimo__/
 .codex
 .local/
 .codex-wrangler.lock
+.codex-wrangler-initial-install.json
+..codex-wrangler-initial-install.json.*.tmp
 bin/codex-local
 README-LOCAL-Start-Codex.md
 # END managed by codex-wrangler
