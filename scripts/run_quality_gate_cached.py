@@ -10,6 +10,14 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "TheKnowledge" / "scripts" / "run_quality_gate_cached.py"
 HELPER_DIR = HELPER_PATH.parent
+LOCAL_STATE_EXCLUDES = {
+    ".local",
+    ".codex-local",
+    ".codex-home",
+    ".codex",
+    ".agents",
+    ".theknowledge-restricted-names.local",
+}
 
 
 def load_helper_main():
@@ -30,6 +38,9 @@ def load_helper_main():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    # Broad Git-ignore discovery can fail on submodule paths. Prune protected
+    # operator state before traversal, independently of that filtering step.
+    module.DEFAULT_EXCLUDES.update(LOCAL_STATE_EXCLUDES)
     return module.main
 
 

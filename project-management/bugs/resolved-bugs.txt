@@ -8,6 +8,16 @@ references when they help trace the fix. Keep any detailed closure records
 aligned under `closed/`.
 
 *
+  Resolved: 2026-10-01T21:36:09-07:00. Moved managed installs lost HOME and
+  slot ownership authority and could not launch or repair. Root cause: valid
+  local records still named the old absolute project root. Resolution:
+  inspect origins, explicitly authorize or safely discover one previous root,
+  validate local authority under lock, preserve selection/context, and rebind
+  records through transactional repair. All 648 tests and the authorized
+  retained-checkout repair passed. Details:
+  `closed/relocated-install-repair.md`
+
+*
   Resolved: 2026-09-13T14:00:49-07:00. Older unfinished candidates remained
   unrecoverable after initialization-receipt support was added. Root cause:
   repair did not consider their exact generated manifests. Resolution:

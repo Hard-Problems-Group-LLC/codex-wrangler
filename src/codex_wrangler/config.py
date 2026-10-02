@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import json
+import os
 from pathlib import Path
 import shlex
 from typing import Optional, Sequence, Tuple
@@ -31,6 +33,7 @@ from .migration import (
 from .models import CodexWranglerError, Config, ExistingState
 from .initialization import read_initial_install
 from .repair import build_repair_plan
+from .relocation import discover_current_repair_layout, resolve_repair_relocation
 from .releases import infer_codex_channel
 from .slots import discover_active_runtime
 
@@ -96,6 +99,16 @@ def parse_absolute_project_root(raw_value: str) -> str:
     return raw_value
 
 
+def parse_previous_project_root(raw_value: str) -> Path:
+    """Normalize an absolute record binding without accessing its old location."""
+
+    if not Path(raw_value).is_absolute():
+        raise argparse.ArgumentTypeError(
+            "--repair-from-root requires an absolute previous project-root path"
+        )
+    return Path(os.path.normpath(raw_value))
+
+
 def validate_channel_version_pair(
     parser: argparse.ArgumentParser,
     channel: Optional[str],
@@ -149,6 +162,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "Examples:\n"
             "  install latest stable:      codex-wrangler .\n"
             "  repair an existing install: codex-wrangler --repair /absolute/path/to/project\n"
+            "  repair a moved checkout:   codex-wrangler --repair /current/project --repair-auto\n"
             "  install latest beta:        codex-wrangler --channel beta .\n"
             "  refresh known versions:     codex-wrangler --update .\n"
             "  upgrade to latest alpha:    codex-wrangler --upgrade --channel alpha .\n"
@@ -169,6 +183,24 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help=(
             "Repair an existing managed install at this absolute project-root "
             "path, preserving project-local Codex context and history."
+        ),
+    )
+    relocation_group = parser.add_mutually_exclusive_group()
+    relocation_group.add_argument(
+        "--repair-from-root",
+        metavar="PREVIOUS_PROJECT_ROOT",
+        type=parse_previous_project_root,
+        help=(
+            "With --repair, recognize validated records from this previous "
+            "absolute project root after moving a checkout."
+        ),
+    )
+    relocation_group.add_argument(
+        "--repair-auto",
+        action="store_true",
+        help=(
+            "With --repair, discover one unambiguous previous root from local "
+            "managed records. Preserve recorded version and HOME choices."
         ),
     )
     operation_group.add_argument(
@@ -395,6 +427,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         parser.error(
             "--repair takes the project root as its own value; do not also "
             "provide a positional project root."
+        )
+
+    if (
+        args.repair_auto or args.repair_from_root is not None
+    ) and args.repair_project_root is None:
+        parser.error(
+            "--repair-auto and --repair-from-root are only valid with --repair."
         )
 
     repair_incompatible_options = []
@@ -663,18 +702,40 @@ def config_from_args(args: argparse.Namespace) -> Config:
         readme_raw=args.readme_local or DEFAULT_README_FILENAME,
         allow_default_migration_staging=uses_default_layout,
     )
+    if operation in ("repair", "inspect"):
+        canonical_layout = discover_current_repair_layout(canonical_layout)
+        uses_default_layout = (
+            canonical_layout.local_dir_relative == DEFAULT_LOCAL_DIR
+            and canonical_layout.codex_home_relative == DEFAULT_HOME_DIR
+        )
     if operation == "repair":
+        if args.repair_auto or args.repair_from_root is not None:
+            canonical_layout = resolve_repair_relocation(
+                canonical_layout,
+                args.repair_from_root,
+                automatic=args.repair_auto,
+            )
+            canonical_layout = replace(canonical_layout, repair_auto=args.repair_auto)
+            uses_default_layout = (
+                canonical_layout.local_dir_relative == DEFAULT_LOCAL_DIR
+                and canonical_layout.codex_home_relative == DEFAULT_HOME_DIR
+            )
         # Repair takes only an absolute project root. A validated receipt can
         # supply custom paths without accepting arbitrary new layout overrides.
         receipt = read_initial_install(canonical_layout, discover_layout=True)
         if receipt is not None:
             paths = receipt["paths"]
-            canonical_layout = build_layout(
+            receipt_layout = build_layout(
                 project_root,
                 paths["local_dir"],
                 paths["codex_home_dir"],
                 paths["launcher"],
                 paths["readme_local"],
+            )
+            canonical_layout = replace(
+                receipt_layout,
+                repair_from_root=canonical_layout.repair_from_root,
+                repair_auto=canonical_layout.repair_auto,
             )
             uses_default_layout = (
                 paths["local_dir"] == DEFAULT_LOCAL_DIR
@@ -698,7 +759,9 @@ def config_from_args(args: argparse.Namespace) -> Config:
     else:
         active_slot = active_runtime.slot_name
         active_pointer_kind = active_runtime.pointer_kind
-    existing = read_existing_state(state_layout)
+    existing = read_existing_state(
+        state_layout, tolerate_invalid_receipt=(operation == "inspect")
+    )
     observed_authority_token = managed_authority_token(
         existing,
         active_slot,
@@ -726,7 +789,11 @@ def config_from_args(args: argparse.Namespace) -> Config:
                 "one explicit --shared-home or --isolated-home choice after "
                 "confirming where its history belongs; nothing was changed. "
                 "Example: codex-wrangler --repair {} --isolated-home (only if "
-                "that was its original mode).".format(shlex.quote(str(project_root)))
+                "that was its original mode). If the directory was moved, "
+                "inspect its recorded roots with --inspect and consider "
+                "--repair-auto or --repair-from-root.".format(
+                    shlex.quote(str(project_root))
+                )
             )
         if (
             existing.shared_home is not None

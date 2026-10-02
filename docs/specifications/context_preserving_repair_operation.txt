@@ -32,6 +32,8 @@ Requirements
    `--isolated-home` is permitted only as recovery authority when no
    surviving managed record retains HOME mode; it may not change a surviving
    recorded choice.
+   Moved installations may use `--repair-from-root` or `--repair-auto` under
+   the explicit relocation contract in `relocated_install_repair.md`.
 3. Managed ownership proof
    Before removing any artifact, repair must prove that the target contains an
    existing `codex-wrangler`-managed install. Strong proof consists of valid

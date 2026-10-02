@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 import stat
 from typing import Any, Optional
@@ -75,6 +76,8 @@ def read_initial_install(
         if discover_layout:
             from .layout import build_layout
 
+            original_origin = layout.repair_from_root
+            original_auto = layout.repair_auto
             paths = payload.get("paths")
             names = ("local_dir", "codex_home_dir", "launcher", "readme_local")
             if not isinstance(paths, dict) or any(
@@ -85,11 +88,14 @@ def read_initial_install(
                 layout.project_root,
                 *(paths[name] for name in names),
             )
+            layout = replace(
+                layout, repair_from_root=original_origin, repair_auto=original_auto
+            )
         if (
             payload.get("kind") != SCRIPT_NAME + "-initial-install"
             or type(payload.get("schema_version")) is not int
             or payload["schema_version"] != 1
-            or payload.get("project_root") != str(layout.project_root)
+            or not layout.accepts_project_root(payload.get("project_root"))
             or payload.get("paths") != layout_paths(layout)
             or type(payload.get("shared_home")) is not bool
             or type(payload.get("reasonable_permissions_enabled")) is not bool
@@ -151,6 +157,19 @@ def write_initial_install(config: Config, *, allow_legacy_repair: bool = False) 
     existing = read_initial_install(config.layout)
     if existing is not None:
         require_initial_install_selection(config, existing)
+        if existing["project_root"] != str(config.project_root):
+            # Identity checks above still prove the same renamed directories.
+            # Publish the current binding before any new candidate writes so
+            # another interruption can be retried without the old pathname.
+            atomic_write_text(
+                initial_install_path(config.layout),
+                json.dumps(
+                    {**existing, "project_root": str(config.project_root)},
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+            )
         return
     runtime = config.layout.local_dir
     runtime.mkdir(parents=True, exist_ok=True)

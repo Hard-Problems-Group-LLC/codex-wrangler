@@ -5,6 +5,45 @@ line formatting. Include concise outcomes, owners, blocker resolution notes,
 and ISO 8601 timestamps.
 
 *
+  Completed: 2026-10-01T23:25:27-07:00.
+  Owner: Codex. Requestor: operator.
+  Outcome: published moved-install repair as 1f25232 using the explicit
+  Matt Heck identity and operator-waived review. Prepared trunk integration
+  with origin's 41dbdb7, preserving both changelog and execution histories.
+  Publication preflight exposed ignored control sockets entering cache
+  fingerprints; added a narrow local-state exclusion overlay and seven
+  regression cases without changing TheKnowledge or bypassing any check.
+  Validation: the merged tree passed the full uncached gate, including all
+  667 tests in 85.83 seconds with native startup coverage. Black, Ruff,
+  compileall, entropy, sentinel/tripwire, knack validation, and diff checks
+  passed. Explicit scans covered 27 parent candidate/incoming files with no
+  findings; the broader entropy-wrapper scope defect remains tracked.
+  Scope: no external checkout, protected context, or local recovery backup
+  was staged or changed during publication. This record accompanies the
+  standard gated integration commit and push.
+
+*
+  Completed: 2026-10-01T21:36:09-07:00.
+  Owner: Codex. Requestor: operator.
+  Outcome: diagnosed stale absolute-root bindings in an external retained
+  checkout. Added bounded origin inspection, automatic and explicit moved-
+  root repair, retained rollback/displaced evidence, and retryable moved
+  receipts. Recover custom supporting paths only from completed slots or
+  identity-checked intent. Kept ordinary repair and adoption strict.
+  Live verification: the authorized retained checkout now runs Codex 0.154.0;
+  inspection has no issues/warnings, and ordinary repair dry-run succeeds.
+  Context metadata matched after repair; old candidates and both prior
+  runtimes retain their identities. Native launcher verification only
+  refreshed temporary PATH-alias metadata; no context contents were read.
+  Validation: all 648 tests passed in 79.82 seconds with native smoke tests.
+  Black, Ruff, compileall, explicit parent candidate entropy scans, known
+  sentinel/tripwire, and diff checks passed. The known parent entropy-wrapper
+  scope defect remains tracked separately. Utility changes remain local and
+  uncommitted on bugfix/relocated-install-repair; TheKnowledge was unchanged.
+  Contract: docs/specifications/relocated_install_repair.md.
+  Details: bugs/closed/relocated-install-repair.md.
+
+*
   Completed: 2026-09-17T13:40:27-07:00.
   Owner: Codex.
   Requestor: operator.

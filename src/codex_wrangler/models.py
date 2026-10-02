@@ -31,6 +31,15 @@ class Layout:
     local_node_modules_dir: Path
     metadata_path: Path
     gitignore_path: Path
+    repair_from_root: Optional[Path] = None
+    repair_auto: bool = False
+
+    def accepts_project_root(self, recorded: object) -> bool:
+        """Accept the current binding or one explicitly selected repair origin."""
+
+        return recorded == str(self.project_root) or (
+            self.repair_from_root is not None and recorded == str(self.repair_from_root)
+        )
 
 
 @dataclass(frozen=True)

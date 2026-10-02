@@ -12,8 +12,14 @@ import textwrap
 
 import pytest
 
-from codex_wrangler.operations import expected_codex_platform_details
+from codex_wrangler.config import config_from_args, parse_args
+from codex_wrangler.models import CodexWranglerError
+from codex_wrangler.operations import (
+    expected_codex_platform_details,
+    install_like_operation,
+)
 from codex_wrangler.rendering import build_launcher_content
+from codex_wrangler.slots import read_slot_metadata
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERSION = "0.30.0"
@@ -315,6 +321,195 @@ def test_fresh_install_launch_initializes_codex_home(installed_project):
     assert stat.S_IMODE((home / ".codex").stat().st_mode) == 0o700
     assert home.stat().st_ino == home_identity
     assert not Path(env["CODEX_HOME"]).exists()
+
+
+def retain_installed_project(installed_project, *, copy=False):
+    """Materialize a retained image and a synthetic context preservation marker."""
+
+    original, home, env = installed_project
+    context = home / ".codex"
+    context.mkdir()
+    sentinel = context / "preserved-context"
+    sentinel.write_bytes(b"retained fixture context\n")
+    retained = original.parent / "retained project"
+    if copy:
+        shutil.copytree(original, retained, symlinks=True)
+    else:
+        original.rename(retained)
+    moved_home = (
+        retained / home.relative_to(original) if home.is_relative_to(original) else home
+    )
+    return original, retained, moved_home, env
+
+
+@pytest.mark.parametrize("copy", [False, True])
+def test_relocated_cli_repair_restores_launcher_and_rollback(installed_project, copy):
+    """Recover unknown origins through the real CLI and preserve existing context."""
+
+    original, retained, home, env = retain_installed_project(
+        installed_project, copy=copy
+    )
+    sentinel = home / ".codex/preserved-context"
+    before = sentinel.stat()
+    home_before = home.stat()
+    active_record = retained / ".local/codex/slots/a/.codex-wrangler-slot.json"
+    original_record = active_record.read_bytes()
+    inspection = run_wrangler(retained, env, ["--inspect", str(retained)])
+    report = json.loads(inspection.stdout)["repair"]
+    assert report["previous_project_root"] == str(original)
+    assert report["automatic_repair_possible"] is True
+    dry_run = run_wrangler(
+        retained, env, ["--repair", str(retained), "--repair-auto", "--dry-run"]
+    )
+    assert dry_run.returncode == 0, dry_run.stderr
+    assert active_record.read_bytes() == original_record
+    assert not (retained / ".local/codex/slots/b").exists()
+
+    repaired = run_wrangler(retained, env, ["--repair", str(retained), "--repair-auto"])
+    assert repaired.returncode == 0, repaired.stderr
+    assert "npm view" not in repaired.stderr
+    assert sentinel.read_bytes() == b"retained fixture context\n"
+    assert sentinel.stat().st_ino == before.st_ino
+    assert sentinel.stat().st_mtime_ns == before.st_mtime_ns
+    assert home.stat().st_ino == home_before.st_ino
+    config = config_from_args(parse_args(["--repair", str(retained)]))
+    assert config.layout.repair_from_root is None
+    assert config.reasonable_permissions_enabled is True
+    assert read_slot_metadata(config.layout, "a") is not None
+    assert read_slot_metadata(config.layout, "b") is not None
+    launched = launch((retained, home, env), "resume", "--last")
+    assert launched.returncode == 0, launched.stderr
+    assert json.loads(launched.stdout)["codex_home"] == str(home / ".codex")
+
+
+@pytest.mark.parametrize("failure", ["npm", "validation"])
+def test_relocated_cli_repair_failure_is_retryable(installed_project, failure):
+    """Before promotion, a failed replacement leaves original slots intact."""
+
+    _original, retained, home, env = retain_installed_project(installed_project)
+    record = retained / ".local/codex/slots/a/.codex-wrangler-slot.json"
+    before = record.read_bytes()
+    failed = run_wrangler(
+        retained,
+        {**env, "WRANGLER_TEST_FAILURE": failure},
+        ["--repair", str(retained), "--repair-auto"],
+    )
+    assert failed.returncode == 1
+    assert record.read_bytes() == before
+    assert os.readlink(retained / ".local/codex/active") == "slots/a"
+    assert not (retained / ".local/codex/slots/b").exists()
+    assert (
+        home / ".codex/preserved-context"
+    ).read_bytes() == b"retained fixture context\n"
+    repaired = run_wrangler(retained, env, ["--repair", str(retained), "--repair-auto"])
+    assert repaired.returncode == 0, repaired.stderr
+
+
+def test_relocated_cli_repair_retains_displaced_slot(installed_project):
+    """An occupied inactive slot remains available as moved-install evidence."""
+
+    original, _home, env = installed_project
+    second = run_wrangler(original, env, ["--repair", str(original)])
+    assert second.returncode == 0, second.stderr
+    inactive = original / ".local/codex/slots/a"
+    sentinel = inactive / "retained-runtime-evidence"
+    sentinel.write_bytes(b"original inactive fixture runtime\n")
+    identity = inactive.stat().st_ino
+    _original, retained, _home, env = retain_installed_project(installed_project)
+
+    repaired = run_wrangler(retained, env, ["--repair", str(retained), "--repair-auto"])
+
+    assert repaired.returncode == 0, repaired.stderr
+    assert os.readlink(retained / ".local/codex/active") == "slots/a"
+    retired = list((retained / ".local/codex/slots").glob(".a.retired-*"))
+    assert len(retired) == 1
+    assert retired[0].stat().st_ino == identity
+    assert (
+        retired[0] / sentinel.name
+    ).read_bytes() == b"original inactive fixture runtime\n"
+
+
+def test_relocated_receipt_cli_failure_can_retry_without_origin(fresh_project):
+    """Once renamed intent is rebound, another failed attempt remains actionable."""
+
+    original, home, env, args = fresh_project
+    failed = run_wrangler(original, {**env, "WRANGLER_TEST_FAILURE": "npm"}, args)
+    assert failed.returncode == 1
+    retained = original.parent / "retained unfinished"
+    original.rename(retained)
+    moved_home = (
+        retained / home.relative_to(original) if home.is_relative_to(original) else home
+    )
+    sentinel = moved_home / "preserved-context"
+    sentinel.write_bytes(b"unfinished fixture context\n")
+    failed_again = run_wrangler(
+        retained,
+        {**env, "WRANGLER_TEST_FAILURE": "npm"},
+        ["--repair", str(retained), "--repair-auto"],
+    )
+    assert failed_again.returncode == 1
+    receipt = retained / ".codex-wrangler-initial-install.json"
+    assert json.loads(receipt.read_text())["project_root"] == str(retained)
+    repaired = run_wrangler(retained, env, ["--repair", str(retained)])
+    assert repaired.returncode == 0, repaired.stderr
+    assert not receipt.exists()
+    assert sentinel.read_bytes() == b"unfinished fixture context\n"
+
+
+def test_relocated_post_promotion_failure_can_resume(installed_project, monkeypatch):
+    """A real filesystem publication failure must not hide the committed slot."""
+
+    _original, retained, _home, env = retain_installed_project(installed_project)
+    monkeypatch.setenv("PATH", env["PATH"])
+    monkeypatch.setenv("HOME", env["HOME"])
+    config = config_from_args(parse_args(["--repair", str(retained), "--repair-auto"]))
+    real_replace = os.replace
+
+    def fail_root_publication(source, destination):
+        """Inject one external I/O failure after the active pointer commits."""
+
+        if Path(destination) == config.layout.metadata_path:
+            raise OSError("fixture root metadata publication failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_root_publication)
+    with pytest.raises(CodexWranglerError, match="committed verified slot"):
+        install_like_operation(config)
+    assert os.readlink(retained / ".local/codex/active") == "slots/b"
+    monkeypatch.setattr(os, "replace", real_replace)
+    repaired = run_wrangler(retained, env, ["--repair", str(retained), "--repair-auto"])
+    assert repaired.returncode == 0, repaired.stderr
+    normal = config_from_args(parse_args(["--repair", str(retained)]))
+    assert read_slot_metadata(normal.layout, "a") is not None
+    assert read_slot_metadata(normal.layout, "b") is not None
+
+
+def test_relocated_legacy_cli_repair_migrates_safely(fresh_project):
+    """Origin recovery also survives the existing guarded default migration."""
+
+    original, operator_or_local_home, env, args = fresh_project
+    shared = "--shared-home" in args
+    legacy_args = ["--local-dir", ".codex-local", "--codex-home-dir", ".codex-home"]
+    if shared:
+        legacy_args.append("--shared-home")
+    installed = run_wrangler(original, env, legacy_args)
+    assert installed.returncode == 0, installed.stderr
+    home = operator_or_local_home if shared else original / ".codex-home"
+    sentinel = home / "preserved-context"
+    sentinel.write_bytes(b"legacy retained fixture\n")
+    identity = home.stat().st_ino
+    retained = original.parent / "retained legacy"
+    original.rename(retained)
+    repaired = run_wrangler(retained, env, ["--repair", str(retained), "--repair-auto"])
+    assert repaired.returncode == 0, repaired.stderr
+    final_home = home if shared else retained / ".local/codex-home"
+    assert final_home.stat().st_ino == identity
+    assert (
+        final_home / "preserved-context"
+    ).read_bytes() == b"legacy retained fixture\n"
+    normal = config_from_args(parse_args(["--repair", str(retained)]))
+    assert read_slot_metadata(normal.layout, "a") is not None
+    assert read_slot_metadata(normal.layout, "b") is not None
 
 
 def test_launch_preserves_existing_context(installed_project):

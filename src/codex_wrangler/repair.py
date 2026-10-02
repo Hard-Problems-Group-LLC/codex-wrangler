@@ -18,6 +18,7 @@ from .layout import (
 from .models import CodexWranglerError, Layout
 from .initialization import initial_install_path, read_initial_install
 from .releases import is_exact_version
+from .relocation import require_relocation_authority
 from .rendering import local_package_json_looks_managed
 from .slots import (
     layout_for_slot,
@@ -388,6 +389,7 @@ def collect_exact_version_evidence(layout: Layout) -> List[Tuple[str, str]]:
 def build_repair_plan(layout: Layout) -> RepairPlan:
     """Prove ownership and select one unambiguous exact recovery version."""
 
+    require_relocation_authority(layout)
     repair_write_targets = (
         layout.local_package_json_path,
         layout.local_package_lock_path,

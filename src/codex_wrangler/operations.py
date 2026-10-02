@@ -68,6 +68,7 @@ from .initialization import (
 )
 from .native_payload import validate_native_payload
 from .repair import build_repair_plan
+from .relocation import finish_relocation, relocation_inspection
 from .releases import (
     fetch_available_codex_versions,
     resolve_install_version,
@@ -1438,6 +1439,12 @@ def publish_projection_state(config: Config) -> None:
 def install_like_operation(config: Config) -> int:
     """Shared implementation for install and upgrade-style operations."""
 
+    if (
+        config.layout.repair_from_root is not None or config.layout.repair_auto
+    ) and config.operation != "repair":
+        raise CodexWranglerError(
+            "Relocation authority is valid only for explicit repair."
+        )
     if config.operation == "install":
         require_safe_install_adoption(config)
     elif config.operation == "upgrade":
@@ -1491,6 +1498,12 @@ def install_like_operation(config: Config) -> int:
         "[codex-wrangler] Target project root: {}".format(resolved_config.project_root)
     )
     eprint("[codex-wrangler] Operation: {}".format(resolved_config.operation))
+    if resolved_config.layout.repair_from_root is not None:
+        eprint(
+            "[codex-wrangler] Recovering records from previous project root: {}".format(
+                resolved_config.layout.repair_from_root
+            )
+        )
     eprint("[codex-wrangler] Codex selector: {}".format(resolved_config.codex_selector))
     eprint("[codex-wrangler] Codex version: {}".format(resolved_config.codex_version))
     eprint("[codex-wrangler] Version source: {}".format(resolved_config.version_source))
@@ -1824,6 +1837,7 @@ def install_like_operation(config: Config) -> int:
             summary_config = published_config
             try:
                 publish_installed_state(published_config, fixed_candidate_config)
+                finish_relocation(published_config.layout)
                 clear_initial_install(published_config.layout)
             except KeyboardInterrupt as exc:
                 raise PointerCommittedInterrupt(
@@ -1839,10 +1853,13 @@ def install_like_operation(config: Config) -> int:
                     "active; rerun the same maintenance operation to reconcile the "
                     "projections.".format(candidate_slot, exc)
                 ) from exc
-            if slot_swap.retired_prefix is not None and repairing_invalid_pointer:
+            if slot_swap.retired_prefix is not None and (
+                repairing_invalid_pointer
+                or resolved_config.layout.repair_from_root is not None
+            ):
                 eprint(
                     "[codex-wrangler] Retained previous inactive-slot evidence "
-                    "after corrupt-pointer repair: {}".format(slot_swap.retired_prefix)
+                    "after recovery: {}".format(slot_swap.retired_prefix)
                 )
             elif slot_swap.retired_prefix is not None:
                 try:
@@ -2140,6 +2157,7 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
         "generated_at": utc_now_iso(),
         "project_root": str(config.project_root),
         "operation": "inspect",
+        "repair": relocation_inspection(config.layout),
         "layout_migration": (
             {
                 "pending": True,
@@ -2285,6 +2303,11 @@ def gather_inspection_report(config: Config) -> Dict[str, Any]:
     state = report["state"]
     warnings = report["warnings"]
     issues = report["issues"]
+    if report["repair"]["relocation_required"]:
+        issues.append(
+            "Managed records name a different project root. Inspect the repair "
+            "report for previous-root evidence and automatic recovery guidance."
+        )
     if config.initial_install:
         issues.append(
             "First installation is unfinished; repeat the original install "
