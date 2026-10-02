@@ -606,7 +606,7 @@ def read_slot_metadata(
         or payload.get("state") != "complete"
         or not isinstance(payload.get("generated_at"), str)
         or not payload.get("generated_at")
-        or payload.get("project_root") != str(layout.project_root)
+        or not layout.accepts_project_root(payload.get("project_root"))
         or (payload.get("local_dir") != layout.local_dir_relative and not legacy_alias)
         or not _slot_record_paths_match(
             payload,

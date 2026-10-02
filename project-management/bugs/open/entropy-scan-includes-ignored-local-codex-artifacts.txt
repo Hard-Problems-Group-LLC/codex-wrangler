@@ -44,3 +44,15 @@ Recommendation
   parent-repo files are excluded reliably.
 - Add regression tests for ignored local generated trees and parent-repo
   paths passed through submodule-hosted security tools.
+
+Publication workaround, 2026-10-01
+
+- The cached quality gate also fingerprinted a live ignored socket beneath
+  `.local/codex-home/.codex` and failed before staging. Its broad ignore query
+  can fail on submodule paths and return no ignored files.
+- The consuming wrapper now prunes reserved local operator-state roots and
+  the local restricted-name input before traversal. Regression tests exercise
+  actual discovery and a Unix socket without reading protected state.
+- This narrow overlay preserves every quality check and leaves TheKnowledge
+  unchanged. Parent entropy-harness scope still requires explicit candidate
+  scans; this larger bug remains open.

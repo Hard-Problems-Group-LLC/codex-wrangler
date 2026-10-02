@@ -384,12 +384,18 @@ def metadata_looks_managed(
     recorded_root = payload.get("project_root")
     if not isinstance(recorded_root, str) or not Path(recorded_root).is_absolute():
         return False
-    try:
-        canonical_recorded_root = Path(recorded_root).expanduser().resolve()
-    except OSError:
-        return False
-    if canonical_recorded_root != layout.project_root:
-        return False
+    if layout.repair_from_root is not None:
+        # The previous root is only a record binding. Never resolve or inspect
+        # its old pathname, which may now belong to a different installation.
+        if not layout.accepts_project_root(recorded_root):
+            return False
+    else:
+        try:
+            canonical_recorded_root = Path(recorded_root).expanduser().resolve()
+        except OSError:
+            return False
+        if canonical_recorded_root != layout.project_root:
+            return False
     paths = payload.get("paths")
     if not isinstance(paths, dict):
         return False
@@ -464,7 +470,9 @@ def _select_consistent_boolean_authority(
     return next(iter(values)) if values else None
 
 
-def read_existing_state(layout: Layout) -> ExistingState:
+def read_existing_state(
+    layout: Layout, *, tolerate_invalid_receipt: bool = False
+) -> ExistingState:
     """Read any previously managed state available at the target paths."""
 
     try:
@@ -633,7 +641,14 @@ def read_existing_state(layout: Layout) -> ExistingState:
     if metadata is None and shared_home is None:
         from .initialization import read_initial_install
 
-        initial_install_receipt = read_initial_install(layout)
+        try:
+            initial_install_receipt = read_initial_install(layout)
+        except CodexWranglerError:
+            if not tolerate_invalid_receipt:
+                raise
+            # Read-only inspection reports receipt problems through recovery
+            # diagnostics instead of failing before it can emit any report.
+            initial_install_receipt = None
         if initial_install_receipt is not None:
             requested_codex_selector = initial_install_receipt["codex_version"]
             pinned_codex_version = requested_codex_selector

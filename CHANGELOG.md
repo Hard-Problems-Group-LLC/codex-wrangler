@@ -10,6 +10,10 @@ and this repository aims to follow
 
 ### Added
 
+- Added `--repair-auto` and `--repair-from-root` for moved or retained managed
+  installations, plus origin evidence, blockers, and suggested commands in
+  inspection reports. Recover only validated local authority without using
+  the old directory, upgrading versions, or replacing context.
 - Added canonical default roots at `.local/codex` and
   `.local/codex-home`, with managed legacy-layout discovery, a
   migration-capable bridge launcher, Linux atomic directory/link exchange,
@@ -173,6 +177,14 @@ and this repository aims to follow
 
 ### Fixed
 
+- Prune protected local operator-state roots before cached quality-gate
+  fingerprint discovery, preventing ignored live control sockets from
+  blocking publication or context files from entering cache inputs.
+- Repair moved root, slot, and unfinished-install bindings while preserving
+  recorded HOME and permissions. Rebind rollback records after promotion,
+  retain displaced runtime evidence, and keep interrupted repairs retryable.
+  Discover current-root custom supporting paths only from completed slots or
+  identity-checked receipts, preserving strict metadata mismatch rejection.
 - Recover receipt-less legacy first installs through explicit repair when
   narrowly validated candidate manifests agree on one exact version. Require
   HOME selection, preserve old candidates and context, reject unsafe or

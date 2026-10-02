@@ -321,6 +321,26 @@ choice, and that choice cannot override surviving evidence. Missing permission
 evidence defaults to disabled. The running utility may come from another
 checkout or installation; it does not invoke the damaged target launcher.
 
+If a checkout was moved or copied, inspect the surviving origin records:
+
+```bash
+codex-wrangler --inspect /absolute/path/to/current-project
+codex-wrangler --repair /absolute/path/to/current-project --repair-auto
+# Or explicitly select the recorded source:
+codex-wrangler --repair /absolute/path/to/current-project \
+  --repair-from-root /absolute/path/to/previous-project
+```
+
+Inspection's `repair` report lists recorded roots, validated evidence,
+blockers, and a suggested command. Automatic mode recognizes one unambiguous
+previous root; conflicting sources require explicit selection. Neither mode
+reads from the old directory or changes the recorded version or HOME mode.
+Recovery rebuilds a fresh candidate and updates the retained rollback record
+after promotion. A moved unfinished receipt still requires the same directory
+identities; copying that receipt does not authorize replacement context.
+Recorded custom HOME, launcher, and README paths are recovered from known
+managed runtime roots. Missing HOME is reported, never recreated.
+
 Fresh installs now write an ignored first-install receipt before populating
 the candidate or npm cache. If that attempt fails, repeat the original
 install command or use absolute-path `--repair`. The receipt preserves the
